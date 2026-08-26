@@ -22,12 +22,12 @@ client.once('ready', async () => {
 
         if (channel && channel.isTextBased()) {
             await guild.channels.fetch();
-            // جلب الرومات الصوتية التي تحتوي على عضو واحد على الأقل فقط
+            // جلب الرومات الصوتية التي تحتوي على أعضاء فقط
             const activeVoiceChannels = guild.channels.cache.filter(c => c.isVoiceBased() && c.members.size > 0);
 
             const embed = new EmbedBuilder()
-                .setTitle('🎙️ لوحة تحكم الرومات النشطة')
-                .setDescription('هذه الرومات التي فيها أشخاص حالياً، يمكنك إعطاؤهم ميوت أو فكه بالأزرار بالأسفل:')
+                .setTitle('🎙️ لوحة تحكم الرومات النشطة (مع عدد الأعضاء)')
+                .setDescription('الزر يوضح لك عدد الأشخاص بالروم، اضغط لإعطائهم ميوت أو فكه فوراً وبنفس الثانية:')
                 .setColor(0x2f3136);
 
             const rows = [];
@@ -38,8 +38,10 @@ client.once('ready', async () => {
                 embed.addFields({ name: 'الحالة', value: 'لا توجد رومات صوتية فيها أعضاء حالياً.' });
             } else {
                 activeVoiceChannels.forEach(vc => {
-                    // زر الميوت
-                    if (buttonCount >= 4) { // كل صف يشيل زرين أو ثلاثة عشان المساحة
+                    const memberCount = vc.members.size;
+
+                    // زر الميوت مع العدد
+                    if (buttonCount >= 4) {
                         rows.push(currentRow);
                         currentRow = new ActionRowBuilder();
                         buttonCount = 0;
@@ -47,12 +49,12 @@ client.once('ready', async () => {
                     currentRow.addComponents(
                         new ButtonBuilder()
                             .setCustomId(`mute_${vc.id}`)
-                            .setLabel(`🔇 ${vc.name}`)
+                            .setLabel(`🔇 ${vc.name} (${memberCount})`)
                             .setStyle(ButtonStyle.Danger)
                     );
                     buttonCount++;
 
-                    // زر فك الميوت
+                    // زر فك الميوت مع العدد
                     if (buttonCount >= 4) {
                         rows.push(currentRow);
                         currentRow = new ActionRowBuilder();
@@ -61,7 +63,7 @@ client.once('ready', async () => {
                     currentRow.addComponents(
                         new ButtonBuilder()
                             .setCustomId(`unmute_${vc.id}`)
-                            .setLabel(`🔊 فك ${vc.name}`)
+                            .setLabel(`🔊 فك ${vc.name} (${memberCount})`)
                             .setStyle(ButtonStyle.Success)
                     );
                     buttonCount++;
@@ -72,16 +74,15 @@ client.once('ready', async () => {
                 }
             }
 
-            // إرسال اللوحة للقناة
             await channel.send({ embeds: [embed], components: rows });
-            console.log('تم إرسال لوحة التحكم المحدثة بنجاح!');
+            console.log('تم إرسال اللوحة مع عدد الأعضاء بنجاح!');
         }
     } catch (error) {
-        console.error('خطأ أثناء إرسال لوحة التحكم:', error);
+        console.error('خطأ أثناء إرسال اللوحة:', error);
     }
 });
 
-// استقبال ضغطات الأزرار (ميوت أو فك ميوت)
+// استقبال ضغطات الأزرار وتنفيذ الميوت للجميع بنفس اللحظة
 client.on('interactionCreate', async interaction => {
     if (!interaction.isButton()) return;
 
@@ -93,23 +94,26 @@ client.on('interactionCreate', async interaction => {
         const channel = await guild.channels.fetch(channelId);
 
         if (!channel || !channel.isVoiceBased()) {
-            return interaction.reply({ content: '❌ الروم الصوتية غير موجودة أو تم حذفها!', ephemeral: true });
+            return interaction.reply({ content: '❌ الروم غير موجودة!', ephemeral: true });
         }
 
         const shouldMute = (action === 'mute');
-        let count = 0;
+
+        // تنفيذ طلبات الميوت لكل الأعضاء بالتوازي وبنفس الثانية
+        const mutePromises = [];
         for (const [memberId, member] of channel.members) {
             if (member.voice) {
-                await member.voice.setMute(shouldMute).catch(() => {});
-                count++;
+                mutePromises.push(member.voice.setMute(shouldMute).catch(() => {}));
             }
         }
 
+        await Promise.all(mutePromises);
+
         const actionText = shouldMute ? 'عمل ميوت لـ' : 'فك الميوت عن';
-        await interaction.reply({ content: `✅ تم ${actionText} ${count} عضو في روم **${channel.name}** بنجاح!`, ephemeral: true });
+        await interaction.reply({ content: `⚡ تم ${actionText} جميع أعضاء روم **${channel.name}** (${mutePromises.length} عضو) في نفس الثانية بنجاح!`, ephemeral: true });
     } catch (error) {
         console.error(error);
-        await interaction.reply({ content: '❌ حدث خطأ أثناء تنفيذ الطلب، تأكد من صلاحيات البوت.', ephemeral: true });
+        await interaction.reply({ content: '❌ حدث خطأ، تأكد من صلاحيات البوت.', ephemeral: true });
     }
 });
 
