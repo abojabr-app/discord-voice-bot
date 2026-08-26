@@ -13,6 +13,64 @@ const client = new Client({
 const GUILD_ID = '1200422663424847882'; // آيدي سيرفرك
 const LOG_CHANNEL_ID = '1539617469201915964'; // آيدي قناة ميوت-الرومات
 
+// دالة لتوليد أزرار الرومات النشطة
+async function getVoiceControlPanel(guild) {
+    await guild.channels.fetch();
+    const activeVoiceChannels = guild.channels.cache.filter(c => c.isVoiceBased() && c.members.size > 0);
+
+    const embed = new EmbedBuilder()
+        .setTitle('🎙️ لوحة تحكم الرومات النشطة (تحديث تلقائي وفوري)')
+        .setDescription('هذه الرومات التي فيها أشخاص حالياً، الأزرار تتحدث تلقائياً وتنفذ الميوت بصمت وبنفس الثانية:')
+        .setColor(0x2f3136);
+
+    const rows = [];
+    let currentRow = new ActionRowBuilder();
+    let buttonCount = 0;
+
+    if (activeVoiceChannels.size === 0) {
+        embed.addFields({ name: 'الحالة', value: 'لا توجد رومات صوتية فيها أعضاء حالياً.' });
+    } else {
+        activeVoiceChannels.forEach(vc => {
+            const memberCount = vc.members.size;
+
+            if (buttonCount >= 4) {
+                rows.push(currentRow);
+                currentRow = new ActionRowBuilder();
+                buttonCount = 0;
+            }
+            currentRow.addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`mute_${vc.id}`)
+                    .setLabel(`🔇 ${vc.name} (${memberCount})`)
+                    .setStyle(ButtonStyle.Danger)
+            );
+            buttonCount++;
+
+            if (buttonCount >= 4) {
+                rows.push(currentRow);
+                currentRow = new ActionRowBuilder();
+                buttonCount = 0;
+            }
+            currentRow.addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`unmute_${vc.id}`)
+                    .setLabel(`🔊 فك ${vc.name} (${memberCount})`)
+                    .setStyle(ButtonStyle.Success)
+            );
+            buttonCount++;
+        });
+
+        if (buttonCount > 0) {
+            rows.push(currentRow);
+        }
+    }
+
+    return { embeds: [embed], components: rows };
+}
+
+// متغير لحفظ رسالة اللوحة عشان نحدثها بدل ما نرسل رسالة جديدة كل شوي
+let panelMessage = null;
+
 client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}!`);
 
@@ -21,65 +79,34 @@ client.once('ready', async () => {
         const channel = await guild.channels.fetch(LOG_CHANNEL_ID);
 
         if (channel && channel.isTextBased()) {
-            await guild.channels.fetch();
-            const activeVoiceChannels = guild.channels.cache.filter(c => c.isVoiceBased() && c.members.size > 0);
+            // حذف الرسائل القديمة في القناة وتنظيفها
+            const messages = await channel.messages.fetch({ limit: 10 });
+            await channel.bulkDelete(messages).catch(() => {});
 
-            const embed = new EmbedBuilder()
-                .setTitle('🎙️ لوحة تحكم الرومات النشطة (تنفيذ فوري وصامت)')
-                .setDescription('اضغط الزر لتطبيق الميوت أو فكه فوراً وبنفس الثانية للجميع بدون رسائل:')
-                .setColor(0x2f3136);
-
-            const rows = [];
-            let currentRow = new ActionRowBuilder();
-            let buttonCount = 0;
-
-            if (activeVoiceChannels.size === 0) {
-                embed.addFields({ name: 'الحالة', value: 'لا توجد رومات صوتية فيها أعضاء حالياً.' });
-            } else {
-                activeVoiceChannels.forEach(vc => {
-                    const memberCount = vc.members.size;
-
-                    if (buttonCount >= 4) {
-                        rows.push(currentRow);
-                        currentRow = new ActionRowBuilder();
-                        buttonCount = 0;
-                    }
-                    currentRow.addComponents(
-                        new ButtonBuilder()
-                            .setCustomId(`mute_${vc.id}`)
-                            .setLabel(`🔇 ${vc.name} (${memberCount})`)
-                            .setStyle(ButtonStyle.Danger)
-                    );
-                    buttonCount++;
-
-                    if (buttonCount >= 4) {
-                        rows.push(currentRow);
-                        currentRow = new ActionRowBuilder();
-                        buttonCount = 0;
-                    }
-                    currentRow.addComponents(
-                        new ButtonBuilder()
-                            .setCustomId(`unmute_${vc.id}`)
-                            .setLabel(`🔊 فك ${vc.name} (${memberCount})`)
-                            .setStyle(ButtonStyle.Success)
-                    );
-                    buttonCount++;
-                });
-
-                if (buttonCount > 0) {
-                    rows.push(currentRow);
-                }
-            }
-
-            await channel.send({ embeds: [embed], components: rows });
-            console.log('تم إرسال اللوحة الصامتة بنجاح!');
+            // إرسال اللوحة لأول مرة
+            const panelData = await getVoiceControlPanel(guild);
+            panelMessage = await channel.send(panelData);
+            console.log('تم إرسال اللوحة بنجاح!');
         }
     } catch (error) {
-        console.error('خطأ أثناء إرسال اللوحة:', error);
+        console.error('خطأ أثناء بدء اللوحة:', error);
     }
 });
 
-// استقبال ضغطات الأزرار وتنفيذ الميوت فوراً بدون إرسال أي رسالة رد
+// تحديث اللوحة تلقائياً كل ما دخل أو طلع أحد من الرومات
+client.on('voiceStateUpdate', async (oldState, newState) => {
+    const guild = newState.guild || oldState.guild;
+    if (guild.id !== GUILD_ID || !panelMessage) return;
+
+    try {
+        const panelData = await getVoiceControlPanel(guild);
+        await panelMessage.edit(panelData).catch(() => {});
+    } catch (error) {
+        console.error('خطأ أثناء تحديث اللوحة:', error);
+    }
+});
+
+// تنفيذ الميوت بصمت تام وبنفس الثانية عند الضغط على الزر
 client.on('interactionCreate', async interaction => {
     if (!interaction.isButton()) return;
 
@@ -87,7 +114,6 @@ client.on('interactionCreate', async interaction => {
     if (action !== 'mute' && action !== 'unmute') return;
 
     try {
-        // تأكيد الضغطة بصمت تام (deferUpdate عشان الديسكورد ما يحسب أن التفاعل فشل وبدون ما يكتب شي)
         await interaction.deferUpdate();
 
         const guild = await interaction.guild.fetch();
@@ -97,7 +123,6 @@ client.on('interactionCreate', async interaction => {
 
         const shouldMute = (action === 'mute');
 
-        // تنفيذ الميوت لجميع الأعضاء بنفس الثانية مع بعض
         const mutePromises = [];
         for (const [memberId, member] of channel.members) {
             if (member.voice) {
