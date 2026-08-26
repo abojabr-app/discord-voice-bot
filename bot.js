@@ -13,19 +13,17 @@ const client = new Client({
 const GUILD_ID = '1200422663424847882'; // آيدي سيرفرك
 const LOG_CHANNEL_ID = '1539617469201915964'; // آيدي قناة ميوت-الرومات
 
-// دالة لتوليد أزرار الرومات النشطة
+// دالة لتوليد أزرار الرومات النشطة (بالطول)
 async function getVoiceControlPanel(guild) {
     await guild.channels.fetch();
     const activeVoiceChannels = guild.channels.cache.filter(c => c.isVoiceBased() && c.members.size > 0);
 
     const embed = new EmbedBuilder()
-        .setTitle('🎙️ لوحة تحكم الرومات النشطة (تحديث تلقائي وفوري)')
-        .setDescription('هذه الرومات التي فيها أشخاص حالياً، الأزرار تتحدث تلقائياً وتنفذ الميوت بصمت وبنفس الثانية:')
+        .setTitle('🎙️ لوحة تحكم الرومات النشطة (ترتيب عمودي)')
+        .setDescription('الرومات النشطة حالياً والأزرار مرتبة بالطول لتسهيل التحكم:')
         .setColor(0x2f3136);
 
     const rows = [];
-    let currentRow = new ActionRowBuilder();
-    let buttonCount = 0;
 
     if (activeVoiceChannels.size === 0) {
         embed.addFields({ name: 'الحالة', value: 'لا توجد رومات صوتية فيها أعضاء حالياً.' });
@@ -33,42 +31,25 @@ async function getVoiceControlPanel(guild) {
         activeVoiceChannels.forEach(vc => {
             const memberCount = vc.members.size;
 
-            if (buttonCount >= 4) {
-                rows.push(currentRow);
-                currentRow = new ActionRowBuilder();
-                buttonCount = 0;
-            }
-            currentRow.addComponents(
+            // كل روم نحط له صف خاص فيه (ActionRow) عشان يصيرون تحت بعض (بالطول)
+            const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                     .setCustomId(`mute_${vc.id}`)
-                    .setLabel(`🔇 ${vc.name} (${memberCount})`)
-                    .setStyle(ButtonStyle.Danger)
-            );
-            buttonCount++;
-
-            if (buttonCount >= 4) {
-                rows.push(currentRow);
-                currentRow = new ActionRowBuilder();
-                buttonCount = 0;
-            }
-            currentRow.addComponents(
+                    .setLabel(`🔇 ميوت ${vc.name} (${memberCount})`)
+                    .setStyle(ButtonStyle.Danger),
                 new ButtonBuilder()
                     .setCustomId(`unmute_${vc.id}`)
                     .setLabel(`🔊 فك ${vc.name} (${memberCount})`)
                     .setStyle(ButtonStyle.Success)
             );
-            buttonCount++;
-        });
 
-        if (buttonCount > 0) {
-            rows.push(currentRow);
-        }
+            rows.push(row);
+        });
     }
 
     return { embeds: [embed], components: rows };
 }
 
-// متغير لحفظ رسالة اللوحة عشان نحدثها بدل ما نرسل رسالة جديدة كل شوي
 let panelMessage = null;
 
 client.once('ready', async () => {
@@ -79,21 +60,19 @@ client.once('ready', async () => {
         const channel = await guild.channels.fetch(LOG_CHANNEL_ID);
 
         if (channel && channel.isTextBased()) {
-            // حذف الرسائل القديمة في القناة وتنظيفها
             const messages = await channel.messages.fetch({ limit: 10 });
             await channel.bulkDelete(messages).catch(() => {});
 
-            // إرسال اللوحة لأول مرة
             const panelData = await getVoiceControlPanel(guild);
             panelMessage = await channel.send(panelData);
-            console.log('تم إرسال اللوحة بنجاح!');
+            console.log('تم إرسال اللوحة العمودية بنجاح!');
         }
     } catch (error) {
         console.error('خطأ أثناء بدء اللوحة:', error);
     }
 });
 
-// تحديث اللوحة تلقائياً كل ما دخل أو طلع أحد من الرومات
+// تحديث اللوحة تلقائياً عند دخول أو خروج أي عضو
 client.on('voiceStateUpdate', async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
     if (guild.id !== GUILD_ID || !panelMessage) return;
