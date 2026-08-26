@@ -1,5 +1,4 @@
 const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
-const { joinVoiceChannel } = require('@discordjs/voice');
 
 const client = new Client({
     intents: [
@@ -13,7 +12,6 @@ const client = new Client({
 
 const GUILD_ID = '1200422663424847882'; // آيدي سيرفرك
 const LOG_CHANNEL_ID = '1539617469201915964'; // آيدي قناة ميوت-الرومات
-const VOICE_ROOM_ID = '1504143545337118792'; // آيدي الروم الصوتي الثابت
 
 // دالة لتوليد أزرار الرومات النشطة (بالطول)
 async function getVoiceControlPanel(guild) {
@@ -21,7 +19,7 @@ async function getVoiceControlPanel(guild) {
     const activeVoiceChannels = guild.channels.cache.filter(c => c.isVoiceBased() && c.members.size > 0);
 
     const embed = new EmbedBuilder()
-        .setTitle('🎙️ لوحة تحكم الرومات النشطة (تحديث تلقائي وفوري)')
+        .setTitle('🎙️ لوحة تحكم الرومات النشطة')
         .setDescription('الرومات النشطة حالياً والأزرار مرتبة بالطول لتسهيل التحكم:')
         .setColor(0x2f3136);
 
@@ -58,22 +56,8 @@ client.once('ready', async () => {
 
     try {
         const guild = await client.guilds.fetch(GUILD_ID);
-
-        // الدخول والثبات في الروم الصوتي المحدد
-        const targetVoiceChannel = await guild.channels.fetch(VOICE_ROOM_ID);
-        if (targetVoiceChannel && targetVoiceChannel.isVoiceBased()) {
-            joinVoiceChannel({
-                channelId: targetVoiceChannel.id,
-                guildId: guild.id,
-                adapterCreator: guild.voiceAdapterCreator,
-                selfDeaf: false,
-                selfMute: false
-            });
-            console.log(`تم دخول البوت وثباته في الروم الصوتي: ${targetVoiceChannel.name}`);
-        }
-
-        // إرسال لوحة التحكم للقناة النصية
         const channel = await guild.channels.fetch(LOG_CHANNEL_ID);
+
         if (channel && channel.isTextBased()) {
             const messages = await channel.messages.fetch({ limit: 10 });
             await channel.bulkDelete(messages).catch(() => {});
