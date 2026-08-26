@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, ChannelType, PermissionsBitField } = require('discord.js');
+const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 
 const client = new Client({
     intents: [
@@ -13,13 +13,13 @@ const client = new Client({
 const GUILD_ID = '1200422663424847882'; // آيدي سيرفرك
 const LOG_CHANNEL_ID = '1539617469201915964'; // آيدي قناة ميوت-الرومات
 
-// ================= ديليجيت: لوحة الميوت العمودية =================
+// دالة لتوليد أزرار الرومات النشطة (بالطول)
 async function getVoiceControlPanel(guild) {
     await guild.channels.fetch();
     const activeVoiceChannels = guild.channels.cache.filter(c => c.isVoiceBased() && c.members.size > 0);
 
     const embed = new EmbedBuilder()
-        .setTitle('🎙️ لوحة تحكم الرومات الشاملة')
+        .setTitle('🎙️ لوحة تحكم الرومات النشطة')
         .setDescription('الرومات النشطة حالياً والأزرار مرتبة بالطول للتحكم الفوري والصامت:')
         .setColor(0x2f3136);
 
@@ -62,14 +62,14 @@ client.once('ready', async () => {
 
             const panelData = await getVoiceControlPanel(guild);
             panelMessage = await channel.send(panelData);
-            console.log('تم إرسال لوحة التحكم الشاملة بنجاح!');
+            console.log('تم إرسال لوحة التحكم بنجاح!');
         }
     } catch (error) {
         console.error('خطأ عند بدء البوت:', error);
     }
 });
 
-// ================= تحديث اللوحة تلقائياً عند الدخول والخروج =================
+// تحديث اللوحة تلقائياً عند دخول وخروج أي عضو
 client.on('voiceStateUpdate', async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
     if (guild.id !== GUILD_ID || !panelMessage) return;
@@ -82,28 +82,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// ================= نظام الحماية من الروابط + الردود التلقائية =================
-client.on('messageCreate', async message => {
-    if (message.author.bot || !message.guild) return;
-
-    // 1. نظام حماية الروابط (يحذف أي رسالة فيها رابط ويحذر العضو)
-    if (message.content.includes('http://') || message.content.includes('https://') || message.content.includes('www.')) {
-        // استثناء المشرفين
-        if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            await message.delete().catch(() => {});
-            const warning = await message.channel.send(`⚠️ **${message.author.username}**، ممنوع إرسال الروابط هنا!`);
-            setTimeout(() => warning.delete().catch(() => {}), 4000);
-            return;
-        }
-    }
-
-    // 2. ردود تلقائية خفيفة
-    if (message.content === '!اوامر' || message.content === '!help') {
-        message.channel.send('⚡ أهلاً بك يا أبو جبر! البوت شغال ومسيطر على السيرفر بالكامل.');
-    }
-});
-
-// ================= تنفيذ الميوت الصاروخي والصامت =================
+// تنفيذ الميوت الصاروخي والصامت
 client.on('interactionCreate', async interaction => {
     if (!interaction.isButton()) return;
 
