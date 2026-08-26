@@ -1,0 +1,14 @@
+{
+  "name": "discord-voice-bot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.0",
+    "express": "^4.19.2",
+    "node-notifier": "^10.0.1"
+  }
+}
