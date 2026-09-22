@@ -96,7 +96,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// تنفيذ الميوت الصاروخي والصامت
+// تنفيذ الميوت الصاروخي والفوري للجميع دفعة واحدة
 client.on('interactionCreate', async interaction => {
     if (!interaction.isButton()) return;
 
@@ -112,13 +112,11 @@ client.on('interactionCreate', async interaction => {
         if (!channel || !channel.isVoiceBased()) return;
 
         const shouldMute = (action === 'mute');
-        const mutePromises = [];
-
-        for (const [memberId, member] of channel.members) {
-            if (member.voice) {
-                mutePromises.push(member.voice.setMute(shouldMute).catch(() => {}));
-            }
-        }
+        
+        // تنفيذ الميوت أو الفك لجميع الأعضاء دفعة واحدة وبشكل متزامن
+        const mutePromises = Array.from(channel.members.values())
+            .filter(member => member.voice)
+            .map(member => member.voice.setMute(shouldMute).catch(() => {}));
 
         await Promise.all(mutePromises);
     } catch (error) {
