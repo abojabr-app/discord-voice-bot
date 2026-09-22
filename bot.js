@@ -1,12 +1,16 @@
 const express = require('express');
 const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 
-// إعداد سيرفر الويب البسيط عشان البوت ما يطفي في Render
+// إعداد سيرفر الويب القوي لمنع النوم في Render
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
-    res.send('Bot is alive and running!');
+    res.status(200).send('Bot is active and running 24/7!');
+});
+
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'OK', uptime: process.uptime() });
 });
 
 app.listen(port, () => {
@@ -27,7 +31,6 @@ const client = new Client({
 const GUILD_ID = '1200422663424847882'; // آيدي سيرفرك
 const LOG_CHANNEL_ID = '1539617469201915964'; // آيدي قناة ميوت-الرومات
 
-// متغير مؤقت عشان نعرف إذا البوت هو اللي قاعد يفك الميوت حالياً ولا لأ
 let isBotUnmuting = false;
 
 // دالة لتوليد أزرار الرومات النشطة (بالطول)
@@ -86,19 +89,17 @@ client.once('ready', async () => {
     }
 });
 
-// الحماية الذكية: تمنع الفك اليدوي، وتسمح لفك البوت بالمرور
+// الحماية الذكية لمنع الفك اليدوي مع السماح لزر البوت بالعمل
 client.on('voiceStateUpdate', async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
     if (guild.id !== GUILD_ID) return;
 
-    // إذا كان البوت قاعد يفك الميوت عبر الزر، نتجاهل الحماية مؤقتاً عشان ما يعكسه
     if (!isBotUnmuting && oldState.serverMute && !newState.serverMute) {
         if (newState.member && newState.member.voice) {
             newState.member.voice.setMute(true).catch(() => {});
         }
     }
 
-    // تحديث اللوحة تلقائياً
     if (panelMessage) {
         try {
             const panelData = await getVoiceControlPanel(guild);
@@ -109,7 +110,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// تنفيذ الميوت أو الفك الجماعي عبر الأزرار
+// تنفيذ الميوت أو الفك الجماعي الفوري عبر الأزرار
 client.on('interactionCreate', async interaction => {
     if (!interaction.isButton()) return;
 
@@ -126,12 +127,10 @@ client.on('interactionCreate', async interaction => {
 
         const shouldMute = (action === 'mute');
 
-        // إذا كان الأمر "فك"، نفعل علامة أن البوت هو اللي قاعد يفك عشان الحماية ما تعانده
         if (action === 'unmute') {
             isBotUnmuting = true;
         }
         
-        // تنفيذ الميوت أو الفك للجميع في نفس الثانية دفعة واحدة
         const promises = [];
         channel.members.forEach(member => {
             if (member.voice) {
@@ -141,7 +140,6 @@ client.on('interactionCreate', async interaction => {
 
         await Promise.all(promises);
 
-        // إذا كان فك، نرجع نقفل علامة البوت بعد التنفيذ بفترة قصيرة
         if (action === 'unmute') {
             setTimeout(() => {
                 isBotUnmuting = false;
