@@ -13,7 +13,7 @@ app.listen(port, () => {
     console.log(`Web server is running on port ${port}`);
 });
 
-// إعداد عميل دسكورد
+// إعداد عميل ديسكورد
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -26,7 +26,6 @@ const client = new Client({
 
 const GUILD_ID = '1200422663424847882'; // آيدي سيرفرك
 const LOG_CHANNEL_ID = '1539617469201915964'; // آيدي قناة ميوت-الرومات
-const ADMIN_ROLE_ID = 'حط_آيدي_رول_الإدارة_هنا'; // <--- حط آيدي الرول اللي مسموح لها تفك الميوت عبر الزر
 
 // دالة لتوليد أزرار الرومات النشطة (بالطول)
 async function getVoiceControlPanel(guild) {
@@ -84,20 +83,18 @@ client.once('ready', async () => {
     }
 });
 
-// الحماية الصارمة: منع أي شخص من فك الميوت عن نفسه يدويًا
+// الحماية الصارمة: لو العضو حاول يفصل أو يفك الميوت عن نفسه يدويًا، يرجعه البوت فورا
 client.on('voiceStateUpdate', async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
     if (guild.id !== GUILD_ID) return;
 
-    // إذا كان العضو محطوط عليه ميوت سيرفر، وشاله بنفسه (أو بأي طريقة يدوية)، يرجعه البوت فوراَ
     if (oldState.serverMute && !newState.serverMute) {
         if (newState.member && newState.member.voice) {
-            // إعادة تطبيق الميوت بشكل فوري
             newState.member.voice.setMute(true).catch(() => {});
         }
     }
 
-    // تحديث اللوحة تلقائياً عند دخول وخروج الأعضاء
+    // تحديث اللوحة تلقائياً
     if (panelMessage) {
         try {
             const panelData = await getVoiceControlPanel(guild);
@@ -108,7 +105,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// تنفيذ الميوت أو الفك الجماعي عبر الأزرار مع التحقق من صلاحية الرول
+// تنفيذ الميوت أو الفك الجماعي عبر الأزرار لأي شخص بدون قيود
 client.on('interactionCreate', async interaction => {
     if (!interaction.isButton()) return;
 
@@ -116,15 +113,6 @@ client.on('interactionCreate', async interaction => {
     if (action !== 'mute' && action !== 'unmute') return;
 
     try {
-        // إذا كان الزر "فك ميوت"، نتأكد أن الضاغط معه رول الإدارة المسموح له فقط
-        if (action === 'unmute') {
-            const member = await interaction.guild.members.fetch(interaction.user.id);
-            if (!member.roles.cache.has(ADMIN_ROLE_ID)) {
-                await interaction.reply({ content: '❌ عذراً، لا تمتلك الصلاحية لفك الميوت عن الروم!', ephemeral: true });
-                return;
-            }
-        }
-
         await interaction.deferUpdate();
 
         const guild = await interaction.guild.fetch();
