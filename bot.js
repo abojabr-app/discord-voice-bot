@@ -96,7 +96,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// تنفيذ الميوت الصاروخي والفوري للجميع دفعة واحدة
+// تنفيذ الميوت الصاروخي للكل بنفس الثانية دفعة واحدة
 client.on('interactionCreate', async interaction => {
     if (!interaction.isButton()) return;
 
@@ -113,12 +113,15 @@ client.on('interactionCreate', async interaction => {
 
         const shouldMute = (action === 'mute');
         
-        // تنفيذ الميوت أو الفك لجميع الأعضاء دفعة واحدة وبشكل متزامن
-        const mutePromises = Array.from(channel.members.values())
-            .filter(member => member.voice)
-            .map(member => member.voice.setMute(shouldMute).catch(() => {}));
+        // إطلاق طلبات الميوت لكل الأعضاء في نفس اللحظة تماماً دون أي تأخير بينهم
+        const promises = [];
+        channel.members.forEach(member => {
+            if (member.voice) {
+                promises.push(member.voice.setMute(shouldMute).catch(() => {}));
+            }
+        });
 
-        await Promise.all(mutePromises);
+        await Promise.all(promises);
     } catch (error) {
         console.error(error);
     }
