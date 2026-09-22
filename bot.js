@@ -1,5 +1,19 @@
+const express = require('express');
 const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 
+// إعداد سيرفر الويب البسيط عشان البوت ما يطفي في Render
+const app = express();
+const port = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+    res.send('Bot is alive and running!');
+});
+
+app.listen(port, () => {
+    console.log(`Web server is running on port ${port}`);
+});
+
+// إعداد عميل ديسكورد
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
