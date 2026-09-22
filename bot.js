@@ -27,6 +27,9 @@ const client = new Client({
 const GUILD_ID = '1200422663424847882'; // آيدي سيرفرك
 const LOG_CHANNEL_ID = '1539617469201915964'; // آيدي قناة ميوت-الرومات
 
+// متغير مؤقت عشان نعرف إذا البوت هو اللي قاعد يفك الميوت حالياً ولا لأ
+let isBotUnmuting = false;
+
 // دالة لتوليد أزرار الرومات النشطة (بالطول)
 async function getVoiceControlPanel(guild) {
     await guild.channels.fetch();
@@ -83,12 +86,13 @@ client.once('ready', async () => {
     }
 });
 
-// الحماية الصارمة: لو العضو حاول يفصل أو يفك الميوت عن نفسه يدويًا، يرجعه البوت فورا
+// الحماية الذكية: تمنع الفك اليدوي، وتسمح لفك البوت بالمرور
 client.on('voiceStateUpdate', async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
     if (guild.id !== GUILD_ID) return;
 
-    if (oldState.serverMute && !newState.serverMute) {
+    // إذا كان البوت قاعد يفك الميوت عبر الزر، نتجاهل الحماية مؤقتاً عشان ما يعكسه
+    if (!isBotUnmuting && oldState.serverMute && !newState.serverMute) {
         if (newState.member && newState.member.voice) {
             newState.member.voice.setMute(true).catch(() => {});
         }
@@ -105,7 +109,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// تنفيذ الميوت أو الفك الجماعي عبر الأزرار لأي شخص بدون قيود
+// تنفيذ الميوت أو الفك الجماعي عبر الأزرار
 client.on('interactionCreate', async interaction => {
     if (!interaction.isButton()) return;
 
@@ -121,6 +125,11 @@ client.on('interactionCreate', async interaction => {
         if (!channel || !channel.isVoiceBased()) return;
 
         const shouldMute = (action === 'mute');
+
+        // إذا كان الأمر "فك"، نفعل علامة أن البوت هو اللي قاعد يفك عشان الحماية ما تعانده
+        if (action === 'unmute') {
+            isBotUnmuting = true;
+        }
         
         // تنفيذ الميوت أو الفك للجميع في نفس الثانية دفعة واحدة
         const promises = [];
@@ -131,7 +140,15 @@ client.on('interactionCreate', async interaction => {
         });
 
         await Promise.all(promises);
+
+        // إذا كان فك، نرجع نقفل علامة البوت بعد التنفيذ بفترة قصيرة
+        if (action === 'unmute') {
+            setTimeout(() => {
+                isBotUnmuting = false;
+            }, 1000);
+        }
     } catch (error) {
+        isBotUnmuting = false;
         console.error(error);
     }
 });
