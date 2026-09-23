@@ -31,7 +31,7 @@ const client = new Client({
 const GUILD_ID = '1200422663424847882'; // آيدي سيرفرك
 const LOG_CHANNEL_ID = '1539617469201915964'; // آيدي قناة ميوت-الرومات
 
-// تخزين أيدي الأعضاء الذين تم كتمهم بواسطة البوت حصرياً لتجنب التداخل الإداري
+// قائمة خاصة لتتبع الأعضاء الذين تم كتمهم بواسطة البوت حصرياً
 const botMutedMembers = new Set();
 
 // دالة لتوليد أزرار الرومات النشطة (بالطول)
@@ -90,15 +90,18 @@ client.once('ready', async () => {
     }
 });
 
-// تحديث اللوحة فقط عند دخول/خروج الأعضاء وتتبع حالات الميوت بأمان دون التدخل في ميوت الإداريين
+// مراقبة حالات الصوت: إذا فك أحد ميوت البوت يدوياً، البوت يعيده. أما ميوت الإداري فلا يتدخل فيه البوت أبداً.
 client.on('voiceStateUpdate', async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
     if (guild.id !== GUILD_ID) return;
 
-    // إذا تم فك الميوت عن العضو، نتحقق إذا كان البوت هو من كتمه ونقوم بتنظيف القائمة
     const memberId = newState.id;
-    if (oldState.serverMute && !newState.serverMute) {
-        botMutedMembers.delete(memberId);
+
+    // إذا كان العضو ميكوت بواسطة البوت، وانفك الميوت عنه يدوياً بدون البوت، نرجعه لحالة الميوت
+    if (botMutedMembers.has(memberId) && oldState.serverMute && !newState.serverMute) {
+        if (newState.member && newState.member.voice) {
+            await newState.member.voice.setMute(true).catch(() => {});
+        }
     }
 
     if (panelMessage) {
@@ -111,7 +114,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// تنفيذ الميوت أو الفك الجماعي الفوري عبر الأزرار
+// تنفيذ الميوت أو الفك عبر الأزرار مع الفصل التام بين ميوت البوت وميوت الإداريين
 client.on('interactionCreate', async interaction => {
     if (!interaction.isButton()) return;
 
@@ -136,7 +139,7 @@ client.on('interactionCreate', async interaction => {
                     botMutedMembers.add(member.id);
                     promises.push(member.voice.setMute(true).catch(() => {}));
                 } else {
-                    // فك الميوت يتم فقط للأعضاء الذين كتمهم البوت مسبقاً، ولا يتدخل في ميوت الإداريين
+                    // زر الفك يعمل فقط للأعضاء الذين كتمهم البوت مسبقاً، ولا يقرب ميوت الإداريين نهائياً
                     if (botMutedMembers.has(member.id)) {
                         botMutedMembers.delete(member.id);
                         promises.push(member.voice.setMute(false).catch(() => {}));
