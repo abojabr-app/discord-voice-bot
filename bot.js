@@ -31,7 +31,8 @@ const client = new Client({
 const GUILD_ID = '1200422663424847882'; // آيدي سيرفرك
 const LOG_CHANNEL_ID = '1539617469201915964'; // آيدي قناة ميوت-الرومات
 
-let isBotUnmuting = false;
+// تخزين أيدي الأعضاء الذين تم كتمهم بواسطة البوت حصرياً لتجنب التداخل الإداري
+const botMutedMembers = new Set();
 
 // دالة لتوليد أزرار الرومات النشطة (بالطول)
 async function getVoiceControlPanel(guild) {
@@ -89,15 +90,15 @@ client.once('ready', async () => {
     }
 });
 
-// الحماية الذكية لمنع الفك اليدوي مع السماح لزر البوت بالعمل
+// تحديث اللوحة فقط عند دخول/خروج الأعضاء وتتبع حالات الميوت بأمان دون التدخل في ميوت الإداريين
 client.on('voiceStateUpdate', async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
     if (guild.id !== GUILD_ID) return;
 
-    if (!isBotUnmuting && oldState.serverMute && !newState.serverMute) {
-        if (newState.member && newState.member.voice) {
-            newState.member.voice.setMute(true).catch(() => {});
-        }
+    // إذا تم فك الميوت عن العضو، نتحقق إذا كان البوت هو من كتمه ونقوم بتنظيف القائمة
+    const memberId = newState.id;
+    if (oldState.serverMute && !newState.serverMute) {
+        botMutedMembers.delete(memberId);
     }
 
     if (panelMessage) {
@@ -126,27 +127,26 @@ client.on('interactionCreate', async interaction => {
         if (!channel || !channel.isVoiceBased()) return;
 
         const shouldMute = (action === 'mute');
-
-        if (action === 'unmute') {
-            isBotUnmuting = true;
-        }
-        
         const promises = [];
+
         channel.members.forEach(member => {
             if (member.voice) {
-                promises.push(member.voice.setMute(shouldMute).catch(() => {}));
+                if (shouldMute) {
+                    // البوت يعطي ميوت ويسجل العضو في قائمته الخاصة
+                    botMutedMembers.add(member.id);
+                    promises.push(member.voice.setMute(true).catch(() => {}));
+                } else {
+                    // فك الميوت يتم فقط للأعضاء الذين كتمهم البوت مسبقاً، ولا يتدخل في ميوت الإداريين
+                    if (botMutedMembers.has(member.id)) {
+                        botMutedMembers.delete(member.id);
+                        promises.push(member.voice.setMute(false).catch(() => {}));
+                    }
+                }
             }
         });
 
         await Promise.all(promises);
-
-        if (action === 'unmute') {
-            setTimeout(() => {
-                isBotUnmuting = false;
-            }, 1000);
-        }
     } catch (error) {
-        isBotUnmuting = false;
         console.error(error);
     }
 });
