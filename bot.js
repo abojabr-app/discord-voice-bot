@@ -1,5 +1,5 @@
 const express = require('express');
-const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, REST, Routes, ApplicationCommandOptionType, ChannelType } = require('discord.js');
 
 // إعداد سيرفر الويب القوي لمنع النوم في Render
 const app = express();
@@ -73,6 +73,39 @@ let panelMessage = null;
 client.once('ready', async () => {
     console.log(`Bot logged in as ${client.user.tag}!`);
 
+    // تسجيل أمر /move كـ Slash Command تلقائياً عند تشغيل البوت
+    try {
+        const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+        await rest.put(
+            Routes.applicationGuildCommands(client.user.id, GUILD_ID),
+            { body: [
+                {
+                    name: 'move',
+                    description: 'نقل جميع الأعضاء من روم صوتي إلى روم آخر',
+                    options: [
+                        {
+                            name: 'from',
+                            description: 'الروم الصوتي المراد النقل منه',
+                            type: ApplicationCommandOptionType.Channel,
+                            channel_types: [ChannelType.GuildVoice],
+                            required: true
+                        },
+                        {
+                            name: 'to',
+                            description: 'الروم الصوتي المراد النقل إليه',
+                            type: ApplicationCommandOptionType.Channel,
+                            channel_types: [ChannelType.GuildVoice],
+                            required: true
+                        }
+                    ]
+                }
+            ]}
+        );
+        console.log('تم تسجيل أمر /move بنجاح!');
+    } catch (error) {
+        console.error('خطأ في تسجيل الأوامر:', error);
+    }
+
     try {
         const guild = await client.guilds.fetch(GUILD_ID);
         const channel = await guild.channels.fetch(LOG_CHANNEL_ID);
@@ -90,14 +123,13 @@ client.once('ready', async () => {
     }
 });
 
-// مراقبة حالات الصوت: إذا فك أحد ميوت البوت يدوياً، البوت يعيده. أما ميوت الإداري فلا يتدخل فيه البوت أبداً.
+// مراقبة حالات الصوت: حماية ميوت البوت وميوت الإداريين
 client.on('voiceStateUpdate', async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
     if (guild.id !== GUILD_ID) return;
 
     const memberId = newState.id;
 
-    // إذا كان العضو ميكوت بواسطة البوت، وانفك الميوت عنه يدوياً بدون البوت، نرجعه لحالة الميوت
     if (botMutedMembers.has(memberId) && oldState.serverMute && !newState.serverMute) {
         if (newState.member && newState.member.voice) {
             await newState.member.voice.setMute(true).catch(() => {});
@@ -114,8 +146,41 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// تنفيذ الميوت أو الفك عبر الأزرار مع الفصل التام بين ميوت البوت وميوت الإداريين
+// التعامل مع الأوامر (Slash Commands) والأزرار
 client.on('interactionCreate', async interaction => {
+    // 1. معالجة أمر /move الجديد
+    if (interaction.isChatInputCommand() && interaction.commandName === 'move') {
+        const fromChannel = interaction.options.getChannel('from');
+        const toChannel = interaction.options.getChannel('to');
+
+        if (!fromChannel || !toChannel || !fromChannel.isVoiceBased() || !toChannel.isVoiceBased()) {
+            return interaction.reply({ content: '❌ يجب اختيار رومات صوتية صحيحة!', ephemeral: true });
+        }
+
+        if (fromChannel.members.size === 0) {
+            return interaction.reply({ content: '❌ الروم المراد النقل منه فارغ ولا يوجد فيه أعضاء!', ephemeral: true });
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+
+        let movedCount = 0;
+        const movePromises = [];
+
+        for (const [memberId, member] of fromChannel.members) {
+            if (member.voice) {
+                movePromises.push(
+                    member.voice.setChannel(toChannel)
+                        .then(() => { movedCount++; })
+                        .catch(() => {})
+                );
+            }
+        }
+
+        await Promise.all(movePromises);
+        return interaction.editReply(`✅ تم نقل **${movedCount}** عضو بنجاح من روم **${fromChannel.name}** إلى روم **${toChannel.name}**!`);
+    }
+
+    // 2. معالجة الأزرار القديمة (الميوت والفك)
     if (!interaction.isButton()) return;
 
     const [action, channelId] = interaction.customId.split('_');
@@ -135,11 +200,9 @@ client.on('interactionCreate', async interaction => {
         channel.members.forEach(member => {
             if (member.voice) {
                 if (shouldMute) {
-                    // البوت يعطي ميوت ويسجل العضو في قائمته الخاصة
                     botMutedMembers.add(member.id);
                     promises.push(member.voice.setMute(true).catch(() => {}));
                 } else {
-                    // زر الفك يعمل فقط للأعضاء الذين كتمهم البوت مسبقاً، ولا يقرب ميوت الإداريين نهائياً
                     if (botMutedMembers.has(member.id)) {
                         botMutedMembers.delete(member.id);
                         promises.push(member.voice.setMute(false).catch(() => {}));
