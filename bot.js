@@ -27,15 +27,12 @@ const client = new Client({
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.DirectMessages
     ],
-    partials: [Partials.Channel, Partials.Message]
+    partials: [Partials.Channel, Partials.Message, Partials.User]
 });
 
 const GUILD_ID = '1200422663424847882'; // آيدي سيرفرك
 const LOG_CHANNEL_ID = '1539617469201915964'; // آيدي قناة ميوت-الرومات
 const INBOX_CHANNEL_ID = '1555355545504850103'; // آيدي روم استقبال ردود الخاص
-
-// قائمة لتخزين آيديات الأشخاص الذين سمح لهم البوت بمراسلته (من سبق أن أرسل له البوت)
-const allowedDmUsers = new Set();
 
 // قائمة لتتبع الأعضاء المكتومين
 const botMutedMembers = new Set();
@@ -137,22 +134,24 @@ client.once('ready', async () => {
     }
 });
 
-// استقبال وتحويل رسائل الخاص (للأشخاص المسموح لهم فقط) مع صورة الشخص
+// استقبال وتحويل رسائل الخاص مع طباعة بالكونسول للتأكد من وصولها
 client.on('messageCreate', async message => {
     if (message.guild || message.author.bot) return;
 
-    // الشرط: السماح فقط لمن سبق أن أرسل له البوت رسالة مسبقاً
-    if (!allowedDmUsers.has(message.author.id)) return;
+    console.log(`استقبل البوت رسالة خاصة من: ${message.author.tag} (${message.author.id}) المحتوى: ${message.content}`);
 
     try {
         const guild = await client.guilds.fetch(GUILD_ID);
         const inboxChannel = await guild.channels.fetch(INBOX_CHANNEL_ID).catch(() => {});
 
-        if (!inboxChannel || !inboxChannel.isTextBased()) return;
+        if (!inboxChannel || !inboxChannel.isTextBased()) {
+            console.log('روم استقبال الردود غير موجود أو غير نصي!');
+            return;
+        }
 
         const dmEmbed = new EmbedBuilder()
-            .setTitle('📥 رد جديد من الخاص (DM)')
-            .setThumbnail(message.author.displayAvatarURL({ dynamic: true, size: 1024 })) // صورة العضو الواضحة
+            .setTitle('📥 رد جديد في الخاص (DM)')
+            .setThumbnail(message.author.displayAvatarURL({ dynamic: true, size: 1024 }))
             .setDescription(message.content || '[رسالة تحتوى على مرفق أو صورة]')
             .addFields(
                 { name: '👤 اسم العضو', value: `${message.author} (${message.author.tag})`, inline: true },
@@ -163,6 +162,7 @@ client.on('messageCreate', async message => {
             .setFooter({ text: guild.name, iconURL: guild.iconURL() });
 
         await inboxChannel.send({ embeds: [dmEmbed] });
+        console.log('تم تحويل رسالة الخاص وإرسالها للروم بنجاح!');
     } catch (error) {
         console.error('خطأ أثناء تحويل رسالة الخاص:', error);
     }
@@ -291,7 +291,7 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.isModalSubmit()) {
-            // أ. إرسال لأصحاب الرول وتفعيل صلاحية الرد لهم
+            // أ. إرسال لأصحاب الرول
             if (interaction.customId.startsWith('modal_role_msg_')) {
                 const parts = interaction.customId.split('_');
                 const roleId = parts[4];
@@ -320,7 +320,6 @@ client.on('interactionCreate', async interaction => {
                 for (const [memberId, member] of membersWithRole) {
                     try {
                         await member.send({ embeds: [roleEmbed] });
-                        allowedDmUsers.add(member.id); // السماح له بالرد
                         successCount++;
                     } catch (err) {
                         failCount++;
@@ -330,7 +329,7 @@ client.on('interactionCreate', async interaction => {
                 return interaction.editReply(`✅ تمت الإرسال بنجاح إلى **${successCount}** عضو يحملون رول **${targetRole.name}**! (فشل لـ ${failCount} بسبب إغلاق الخاص).`);
             }
 
-            // ب. إرسال لعضو محدد وتفعيل صلاحية الرد له
+            // ب. إرسال لعضو محدد
             if (interaction.customId.startsWith('modal_user_msg_')) {
                 const parts = interaction.customId.split('_');
                 const userId = parts[4];
@@ -352,8 +351,6 @@ client.on('interactionCreate', async interaction => {
                         .setFooter({ text: guild.name, iconURL: guild.iconURL() });
 
                     await targetMember.send({ embeds: [userEmbed] });
-                    allowedDmUsers.add(targetMember.id); // السماح له بالرد
-                    
                     return interaction.editReply(`✅ تمت إرسال الرسالة الشخصية بنجاح إلى العضو **${targetMember.user.tag}**!`);
                 } catch (err) {
                     return interaction.editReply('❌ فشل إرسال الرسالة الخاصة لهذا العضو (قد يكون مقفل الخاص أو البوت لا يمتلك صلاحية).');
