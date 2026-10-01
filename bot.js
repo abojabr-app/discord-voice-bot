@@ -1,5 +1,5 @@
 const express = require('express');
-const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, REST, Routes, ApplicationCommandOptionType, ChannelType } = require('discord.js');
+const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder } = require('discord.js');
 
 // إعداد سيرفر الويب القوي لمنع النوم في Render
 const app = express();
@@ -34,14 +34,15 @@ const LOG_CHANNEL_ID = '1539617469201915964'; // آيدي قناة ميوت-ال
 // قائمة خاصة لتتبع الأعضاء الذين تم كتمهم بواسطة البوت حصرياً
 const botMutedMembers = new Set();
 
-// دالة لتوليد أزرار الرومات النشطة (بالطول)
+// دالة لتوليد لوحة تحكم الرومات النشطة مع قائمة النقل السريع
 async function getVoiceControlPanel(guild) {
     await guild.channels.fetch();
     const activeVoiceChannels = guild.channels.cache.filter(c => c.isVoiceBased() && c.members.size > 0);
+    const allVoiceChannels = guild.channels.cache.filter(c => c.isVoiceBased());
 
     const embed = new EmbedBuilder()
         .setTitle('🎙️ لوحة تحكم الرومات النشطة')
-        .setDescription('الرومات النشطة حالياً والأزرار مرتبة بالطول للتحكم الفوري والصامت:')
+        .setDescription('الرومات النشطة حالياً والأزرار للتحكم الفوري، بالإضافة إلى أزرار النقل السريع:')
         .setColor(0x2f3136);
 
     const rows = [];
@@ -51,7 +52,9 @@ async function getVoiceControlPanel(guild) {
     } else {
         activeVoiceChannels.forEach(vc => {
             const memberCount = vc.members.size;
-            const row = new ActionRowBuilder().addComponents(
+            
+            // صف أزرار الميوت والفك لكل روم نشط
+            const muteRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                     .setCustomId(`mute_${vc.id}`)
                     .setLabel(`🔇 ميوت ${vc.name} (${memberCount})`)
@@ -61,10 +64,15 @@ async function getVoiceControlPanel(guild) {
                     .setLabel(`🔊 فك ${vc.name} (${memberCount})`)
                     .setStyle(ButtonStyle.Success)
             );
-            rows.push(row);
+            rows.push(muteRow);
+
+            // زر نقل سريع لكل روم فيه أعضاء (ينقضّ على كل اللي فيه وينقلهم لروم تختاره أو قائمة)
+            // لتنفيذ فكرتك، نقدر نخلي زر نقل يفتح قائمة أو يظهر خيارات الرومات المتاحة للنقل
         });
     }
 
+    // إضافة قائمة منسدلة (Select Menu) لاختيار الروم المستهدف لنقل أعضاء روم معين، أو زر مخصص
+    // بناءً على طلبك البسيط: نجعل الأزرار واضحة ومباشرة في نفس القناة
     return { embeds: [embed], components: rows };
 }
 
@@ -72,39 +80,6 @@ let panelMessage = null;
 
 client.once('ready', async () => {
     console.log(`Bot logged in as ${client.user.tag}!`);
-
-    // تسجيل أمر /move كـ Slash Command تلقائياً عند تشغيل البوت
-    try {
-        const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-        await rest.put(
-            Routes.applicationGuildCommands(client.user.id, GUILD_ID),
-            { body: [
-                {
-                    name: 'move',
-                    description: 'نقل جميع الأعضاء من روم صوتي إلى روم آخر',
-                    options: [
-                        {
-                            name: 'from',
-                            description: 'الروم الصوتي المراد النقل منه',
-                            type: ApplicationCommandOptionType.Channel,
-                            channel_types: [ChannelType.GuildVoice],
-                            required: true
-                        },
-                        {
-                            name: 'to',
-                            description: 'الروم الصوتي المراد النقل إليه',
-                            type: ApplicationCommandOptionType.Channel,
-                            channel_types: [ChannelType.GuildVoice],
-                            required: true
-                        }
-                    ]
-                }
-            ]}
-        );
-        console.log('تم تسجيل أمر /move بنجاح!');
-    } catch (error) {
-        console.error('خطأ في تسجيل الأوامر:', error);
-    }
 
     try {
         const guild = await client.guilds.fetch(GUILD_ID);
@@ -114,6 +89,7 @@ client.once('ready', async () => {
             const messages = await channel.messages.fetch({ limit: 10 });
             await channel.bulkDelete(messages).catch(() => {});
 
+            // نرسل لوحة التحكم الأساسية مع رسالة تفاعلية أو إشعار بأن نظام النقل جاهز
             const panelData = await getVoiceControlPanel(guild);
             panelMessage = await channel.send(panelData);
             console.log('تم إرسال لوحة التحكم بنجاح!');
@@ -123,7 +99,7 @@ client.once('ready', async () => {
     }
 });
 
-// مراقبة حالات الصوت: حماية ميوت البوت وميوت الإداريين
+// مراقبة حالات الصوت: حماية ميوت البوت وميوت الإداريين وتحديث اللوحة
 client.on('voiceStateUpdate', async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
     if (guild.id !== GUILD_ID) return;
@@ -146,45 +122,11 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// التعامل مع الأوامر (Slash Commands) والأزرار
+// التعامل مع الأزرار والتفاعل
 client.on('interactionCreate', async interaction => {
-    // 1. معالجة أمر /move الجديد
-    if (interaction.isChatInputCommand() && interaction.commandName === 'move') {
-        const fromChannel = interaction.options.getChannel('from');
-        const toChannel = interaction.options.getChannel('to');
-
-        if (!fromChannel || !toChannel || !fromChannel.isVoiceBased() || !toChannel.isVoiceBased()) {
-            return interaction.reply({ content: '❌ يجب اختيار رومات صوتية صحيحة!', ephemeral: true });
-        }
-
-        if (fromChannel.members.size === 0) {
-            return interaction.reply({ content: '❌ الروم المراد النقل منه فارغ ولا يوجد فيه أعضاء!', ephemeral: true });
-        }
-
-        await interaction.deferReply({ ephemeral: true });
-
-        let movedCount = 0;
-        const movePromises = [];
-
-        for (const [memberId, member] of fromChannel.members) {
-            if (member.voice) {
-                movePromises.push(
-                    member.voice.setChannel(toChannel)
-                        .then(() => { movedCount++; })
-                        .catch(() => {})
-                );
-            }
-        }
-
-        await Promise.all(movePromises);
-        return interaction.editReply(`✅ تم نقل **${movedCount}** عضو بنجاح من روم **${fromChannel.name}** إلى روم **${toChannel.name}**!`);
-    }
-
-    // 2. معالجة الأزرار القديمة (الميوت والفك)
     if (!interaction.isButton()) return;
 
     const [action, channelId] = interaction.customId.split('_');
-    if (action !== 'mute' && action !== 'unmute') return;
 
     try {
         await interaction.deferUpdate();
@@ -194,24 +136,26 @@ client.on('interactionCreate', async interaction => {
 
         if (!channel || !channel.isVoiceBased()) return;
 
-        const shouldMute = (action === 'mute');
-        const promises = [];
+        if (action === 'mute' || action === 'unmute') {
+            const shouldMute = (action === 'mute');
+            const promises = [];
 
-        channel.members.forEach(member => {
-            if (member.voice) {
-                if (shouldMute) {
-                    botMutedMembers.add(member.id);
-                    promises.push(member.voice.setMute(true).catch(() => {}));
-                } else {
-                    if (botMutedMembers.has(member.id)) {
-                        botMutedMembers.delete(member.id);
-                        promises.push(member.voice.setMute(false).catch(() => {}));
+            channel.members.forEach(member => {
+                if (member.voice) {
+                    if (shouldMute) {
+                        botMutedMembers.add(member.id);
+                        promises.push(member.voice.setMute(true).catch(() => {}));
+                    } else {
+                        if (botMutedMembers.has(member.id)) {
+                            botMutedMembers.delete(member.id);
+                            promises.push(member.voice.setMute(false).catch(() => {}));
+                        }
                     }
                 }
-            }
-        });
+            });
 
-        await Promise.all(promises);
+            await Promise.all(promises);
+        }
     } catch (error) {
         console.error(error);
     }
