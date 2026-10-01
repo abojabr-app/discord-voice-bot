@@ -170,7 +170,6 @@ client.on('interactionCreate', async interaction => {
                 const vcId = interaction.customId.split('_')[2];
                 const selectedRoleId = interaction.values[0];
 
-                // فتح نافذة كتابة الرسالة الخاصة لأصحاب الرول
                 const modal = new ModalBuilder()
                     .setCustomId(`modal_role_msg_${vcId}_${selectedRoleId}`)
                     .setTitle('اكتب رسالة أصحاب الرول');
@@ -193,7 +192,6 @@ client.on('interactionCreate', async interaction => {
                 const vcId = interaction.customId.split('_')[2];
                 const selectedUserId = interaction.values[0];
 
-                // فتح نافذة كتابة التنبيه أو التوجيه الخاص للعضو المحدد
                 const modal = new ModalBuilder()
                     .setCustomId(`modal_user_msg_${vcId}_${selectedUserId}`)
                     .setTitle('رسالة توجيه/تنبيه شخصية');
@@ -212,13 +210,11 @@ client.on('interactionCreate', async interaction => {
 
         // 3. التعامل مع القوائم المنسدلة النصية (String Select Menu)
         if (interaction.isStringSelectMenu()) {
-            // أ. قائمة خيارات الرسائل الخاصة للروم
             if (interaction.customId.startsWith('msg_menu_')) {
                 const selectedValue = interaction.values[0];
                 const vcId = selectedValue.split('_')[2];
 
                 if (selectedValue.startsWith('choose_role_')) {
-                    // إظهار قائمة منسدلة خاصة لاختيار الرول من السيرفر
                     const roleSelect = new RoleSelectMenuBuilder()
                         .setCustomId(`role_select_${vcId}`)
                         .setPlaceholder('🎯 اختر الرول المستهدف للإرسال')
@@ -230,7 +226,6 @@ client.on('interactionCreate', async interaction => {
                 } 
                 
                 if (selectedValue.startsWith('choose_user_')) {
-                    // إظهار قائمة منسدلة خاصة لاختيار عضو محدد من السيرفر
                     const userSelect = new UserSelectMenuBuilder()
                         .setCustomId(`user_select_${vcId}`)
                         .setPlaceholder('👤 اختر العضو المستهدف لتنبيهه')
@@ -242,7 +237,6 @@ client.on('interactionCreate', async interaction => {
                 }
             }
 
-            // ب. قائمة النقل
             if (interaction.customId.startsWith('select_move_')) {
                 await interaction.deferUpdate();
 
@@ -268,9 +262,9 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
-        // 4. التعامل مع النوافذ المنبثقة (Modals) وتنفيذ إرسال الرسائل
+        // 4. التعامل مع النوافذ المنبثقة (Modals) وإرسال رسائل الـ Embed الفخمة
         if (interaction.isModalSubmit()) {
-            // أ. إرسال لأصحاب الرول
+            // أ. إرسال لأصحاب الرول بصيغة Embed فخم
             if (interaction.customId.startsWith('modal_role_msg_')) {
                 const parts = interaction.customId.split('_');
                 const roleId = parts[4];
@@ -286,22 +280,30 @@ client.on('interactionCreate', async interaction => {
                     return interaction.editReply('❌ عذراً، لا يوجد أي عضو يملك هذا الرول حالياً.');
                 }
 
+                // تصميم الـ Embed للرول
+                const roleEmbed = new EmbedBuilder()
+                    .setTitle('📢 تنبيه إداري رسمي')
+                    .setDescription(messageText)
+                    .setColor(0x5865F2) // لون ديسكورد المميز
+                    .setTimestamp()
+                    .setFooter({ text: guild.name, iconURL: guild.iconURL() });
+
                 let successCount = 0;
                 let failCount = 0;
 
                 for (const [memberId, member] of membersWithRole) {
                     try {
-                        await member.send(messageText);
+                        await member.send({ embeds: [roleEmbed] });
                         successCount++;
                     } catch (err) {
                         failCount++;
                     }
                 }
 
-                return interaction.editReply(`✅ تمت الإرسال بنجاح إلى **${successCount}** عضو يحملون رول **${targetRole.name}**! (فشل لـ ${failCount} بسبب إغلاق الخاص).`);
+                return interaction.editReply(`✅ تمت الإرسال بنجاح إلى **${successCount}** عضو يحملون رول **${targetRole.name}** بالشكل الجديد! (فشل لـ ${failCount} بسبب إغلاق الخاص).`);
             }
 
-            // ب. إرسال لعضو محدد شخصياً
+            // ب. إرسال لعضو محدد شخصياً بصيغة Embed فخم
             if (interaction.customId.startsWith('modal_user_msg_')) {
                 const parts = interaction.customId.split('_');
                 const userId = parts[4];
@@ -315,8 +317,16 @@ client.on('interactionCreate', async interaction => {
                         return interaction.editReply('❌ لم يتم العثور على هذا العضو في السيرفر.');
                     }
 
-                    await targetMember.send(messageText);
-                    return interaction.editReply(`✅ تمت إرسال الرسالة الشخصية بنجاح إلى العضو **${targetMember.user.tag}**!`);
+                    // تصميم الـ Embed الشخصي
+                    const userEmbed = new EmbedBuilder()
+                        .setTitle('✉️ توجيه أو تنبيه خاص لك')
+                        .setDescription(messageText)
+                        .setColor(0xFEE75C) // لون أصفر مميز للتنبيهات الشخصية
+                        .setTimestamp()
+                        .setFooter({ text: guild.name, iconURL: guild.iconURL() });
+
+                    await targetMember.send({ embeds: [userEmbed] });
+                    return interaction.editReply(`✅ تمت إرسال الرسالة الشخصية بنجاح إلى العضو **${targetMember.user.tag}** بالنمط الجديد!`);
                 } catch (err) {
                     return interaction.editReply('❌ فشل إرسال الرسالة الخاصة لهذا العضو (قد يكون مقفل الخاص أو البوت لا يمتلك صلاحية).');
                 }
