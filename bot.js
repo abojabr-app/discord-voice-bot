@@ -34,7 +34,7 @@ const LOG_CHANNEL_ID = '1539617469201915964'; // آيدي قناة ميوت-ال
 // قائمة خاصة لتتبع الأعضاء الذين تم كتمهم بواسطة البوت حصرياً
 const botMutedMembers = new Set();
 
-// دالة لتوليد لوحة تحكم الرومات النشطة مع قائمة النقل السريع
+// دالة لتوليد أزرار الرومات النشطة (بالطول) مع قائمة النقل المضافة
 async function getVoiceControlPanel(guild) {
     await guild.channels.fetch();
     const activeVoiceChannels = guild.channels.cache.filter(c => c.isVoiceBased() && c.members.size > 0);
@@ -42,7 +42,7 @@ async function getVoiceControlPanel(guild) {
 
     const embed = new EmbedBuilder()
         .setTitle('🎙️ لوحة تحكم الرومات النشطة')
-        .setDescription('الرومات النشطة حالياً والأزرار للتحكم الفوري، بالإضافة إلى أزرار النقل السريع:')
+        .setDescription('الرومات النشطة حالياً والأزرار مرتبة بالطول للتحكم الفوري والصامت، مع قائمة النقل السريع:')
         .setColor(0x2f3136);
 
     const rows = [];
@@ -53,8 +53,8 @@ async function getVoiceControlPanel(guild) {
         activeVoiceChannels.forEach(vc => {
             const memberCount = vc.members.size;
             
-            // صف أزرار الميوت والفك لكل روم نشط
-            const muteRow = new ActionRowBuilder().addComponents(
+            // 1. أزرار الميوت والفك القديمة
+            const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                     .setCustomId(`mute_${vc.id}`)
                     .setLabel(`🔇 ميوت ${vc.name} (${memberCount})`)
@@ -64,15 +64,31 @@ async function getVoiceControlPanel(guild) {
                     .setLabel(`🔊 فك ${vc.name} (${memberCount})`)
                     .setStyle(ButtonStyle.Success)
             );
-            rows.push(muteRow);
+            rows.push(row);
 
-            // زر نقل سريع لكل روم فيه أعضاء (ينقضّ على كل اللي فيه وينقلهم لروم تختاره أو قائمة)
-            // لتنفيذ فكرتك، نقدر نخلي زر نقل يفتح قائمة أو يظهر خيارات الرومات المتاحة للنقل
+            // 2. قائمة النقل المضافة حديثاً لكل روم نشط
+            const options = [];
+            allVoiceChannels.forEach(targetVc => {
+                if (targetVc.id !== vc.id) {
+                    options.push({
+                        label: `نقل إلى: ${targetVc.name}`.slice(0, 100),
+                        value: `move_${vc.id}_to_${targetVc.id}`
+                    });
+                }
+            });
+
+            if (options.length > 0) {
+                const selectMenu = new StringSelectMenuBuilder()
+                    .setCustomId(`select_move_${vc.id}`)
+                    .setPlaceholder(`🔀 نقل أعضاء [ ${vc.name} ] إلى...`)
+                    .addOptions(options.slice(0, 25));
+
+                const menuRow = new ActionRowBuilder().addComponents(selectMenu);
+                rows.push(menuRow);
+            }
         });
     }
 
-    // إضافة قائمة منسدلة (Select Menu) لاختيار الروم المستهدف لنقل أعضاء روم معين، أو زر مخصص
-    // بناءً على طلبك البسيط: نجعل الأزرار واضحة ومباشرة في نفس القناة
     return { embeds: [embed], components: rows };
 }
 
@@ -89,7 +105,6 @@ client.once('ready', async () => {
             const messages = await channel.messages.fetch({ limit: 10 });
             await channel.bulkDelete(messages).catch(() => {});
 
-            // نرسل لوحة التحكم الأساسية مع رسالة تفاعلية أو إشعار بأن نظام النقل جاهز
             const panelData = await getVoiceControlPanel(guild);
             panelMessage = await channel.send(panelData);
             console.log('تم إرسال لوحة التحكم بنجاح!');
@@ -99,7 +114,7 @@ client.once('ready', async () => {
     }
 });
 
-// مراقبة حالات الصوت: حماية ميوت البوت وميوت الإداريين وتحديث اللوحة
+// الحماية الذكية لميوت البوت وميوت الإداريين
 client.on('voiceStateUpdate', async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
     if (guild.id !== GUILD_ID) return;
@@ -122,40 +137,67 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// التعامل مع الأزرار والتفاعل
+// تنفيذ الأزرار والقوائم المنسدلة (الميوت، الفك، والنقل)
 client.on('interactionCreate', async interaction => {
-    if (!interaction.isButton()) return;
-
-    const [action, channelId] = interaction.customId.split('_');
-
     try {
+        const guild = await interaction.guild.fetch();
+
+        // 1. معالجة القائمة المنسدلة للنقل
+        if (interaction.isStringSelectMenu()) {
+            if (interaction.customId.startsWith('select_move_')) {
+                await interaction.deferUpdate();
+
+                const selectedValue = interaction.values[0];
+                const parts = selectedValue.split('_');
+                const fromChannelId = parts[1];
+                const targetChannelId = parts[3];
+
+                const fromChannel = await guild.channels.fetch(fromChannelId).catch(() => {});
+                const targetChannel = await guild.channels.fetch(targetChannelId).catch(() => {});
+
+                if (!fromChannel || !targetChannel || !fromChannel.isVoiceBased() || !targetChannel.isVoiceBased()) return;
+
+                const movePromises = [];
+                fromChannel.members.forEach(member => {
+                    if (member.voice) {
+                        movePromises.push(member.voice.setChannel(targetChannel).catch(() => {}));
+                    }
+                });
+
+                await Promise.all(movePromises);
+            }
+            return;
+        }
+
+        // 2. معالجة الأزرار القديمة (الميوت والفك)
+        if (!interaction.isButton()) return;
+
+        const [action, channelId] = interaction.customId.split('_');
+        if (action !== 'mute' && action !== 'unmute') return;
+
         await interaction.deferUpdate();
 
-        const guild = await interaction.guild.fetch();
-        const channel = await guild.channels.fetch(channelId);
-
+        const channel = await guild.channels.fetch(channelId).catch(() => {});
         if (!channel || !channel.isVoiceBased()) return;
 
-        if (action === 'mute' || action === 'unmute') {
-            const shouldMute = (action === 'mute');
-            const promises = [];
+        const shouldMute = (action === 'mute');
+        const promises = [];
 
-            channel.members.forEach(member => {
-                if (member.voice) {
-                    if (shouldMute) {
-                        botMutedMembers.add(member.id);
-                        promises.push(member.voice.setMute(true).catch(() => {}));
-                    } else {
-                        if (botMutedMembers.has(member.id)) {
-                            botMutedMembers.delete(member.id);
-                            promises.push(member.voice.setMute(false).catch(() => {}));
-                        }
+        channel.members.forEach(member => {
+            if (member.voice) {
+                if (shouldMute) {
+                    botMutedMembers.add(member.id);
+                    promises.push(member.voice.setMute(true).catch(() => {}));
+                } else {
+                    if (botMutedMembers.has(member.id)) {
+                        botMutedMembers.delete(member.id);
+                        promises.push(member.voice.setMute(false).catch(() => {}));
                     }
                 }
-            });
+            }
+        });
 
-            await Promise.all(promises);
-        }
+        await Promise.all(promises);
     } catch (error) {
         console.error(error);
     }
