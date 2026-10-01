@@ -1,7 +1,7 @@
 const express = require('express');
-const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, RoleSelectMenuBuilder, UserSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, RoleSelectMenuBuilder, UserSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 
-// إعداد سيرفر الويب القوي لمنع النوم في Render
+// إعداد سيرفر الويب لمنع النوم في Render
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -17,29 +17,33 @@ app.listen(port, () => {
     console.log(`Web server is running on port ${port}`);
 });
 
-// إعداد عميل ديسكورد
+// إعداد عميل ديسكورد مع Partials لدعم رسائل الخاص
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildVoiceStates,
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
-    ]
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.DirectMessages
+    ],
+    partials: [Partials.Channel, Partials.Message]
 });
 
 const GUILD_ID = '1200422663424847882'; // آيدي سيرفرك
 const LOG_CHANNEL_ID = '1539617469201915964'; // آيدي قناة ميوت-الرومات
+const INBOX_CHANNEL_ID = '1555355545504850103'; // آيدي روم استقبال ردود الخاص
 
-// قائمة خاصة لتتبع الأعضاء الذين تم كتمهم بواسطة البوت حصرياً
+// قائمة لتخزين آيديات الأشخاص الذين سمح لهم البوت بمراسلته (من سبق أن أرسل له البوت)
+const allowedDmUsers = new Set();
+
+// قائمة لتتبع الأعضاء المكتومين
 const botMutedMembers = new Set();
 
-// دالة لتوليد لوحة تحكم الرومات النشطة مع الأزرار، قوائم النقل، وقوائم الرسائل الخاصة المتقدمة
+// دالة توليد لوحة تحكم الرومات النشطة
 async function getVoiceControlPanel(guild) {
     await guild.channels.fetch();
     const activeVoiceChannels = guild.channels.cache.filter(c => c.isVoiceBased() && c.members.size > 0);
-    
-    // جلب جميع الرومات الصوتية مرتبة حسب ترتيب السيرفر (Position)
     const allVoiceChannels = guild.channels.cache
         .filter(c => c.isVoiceBased())
         .sort((a, b) => a.position - b.position);
@@ -57,7 +61,6 @@ async function getVoiceControlPanel(guild) {
         activeVoiceChannels.forEach(vc => {
             const memberCount = vc.members.size;
             
-            // 1. أزرار الميوت والفك
             const muteRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                     .setCustomId(`mute_${vc.id}`)
@@ -70,7 +73,6 @@ async function getVoiceControlPanel(guild) {
             );
             rows.push(muteRow);
 
-            // 2. قائمة النقل المنفردة
             const moveOptions = [];
             allVoiceChannels.forEach(targetVc => {
                 if (targetVc.id !== vc.id) {
@@ -91,7 +93,6 @@ async function getVoiceControlPanel(guild) {
                 rows.push(new ActionRowBuilder().addComponents(selectMoveMenu));
             }
 
-            // 3. قائمة خيارات الرسائل الخاصة المنفردة لكل روم
             const msgSelectMenu = new StringSelectMenuBuilder()
                 .setCustomId(`msg_menu_${vc.id}`)
                 .setPlaceholder(`✉️ إرسال رسالة خاصة من [ ${vc.name} ]...`)
@@ -136,6 +137,37 @@ client.once('ready', async () => {
     }
 });
 
+// استقبال وتحويل رسائل الخاص (للأشخاص المسموح لهم فقط) مع صورة الشخص
+client.on('messageCreate', async message => {
+    if (message.guild || message.author.bot) return;
+
+    // الشرط: السماح فقط لمن سبق أن أرسل له البوت رسالة مسبقاً
+    if (!allowedDmUsers.has(message.author.id)) return;
+
+    try {
+        const guild = await client.guilds.fetch(GUILD_ID);
+        const inboxChannel = await guild.channels.fetch(INBOX_CHANNEL_ID).catch(() => {});
+
+        if (!inboxChannel || !inboxChannel.isTextBased()) return;
+
+        const dmEmbed = new EmbedBuilder()
+            .setTitle('📥 رد جديد من الخاص (DM)')
+            .setThumbnail(message.author.displayAvatarURL({ dynamic: true, size: 1024 })) // صورة العضو الواضحة
+            .setDescription(message.content || '[رسالة تحتوى على مرفق أو صورة]')
+            .addFields(
+                { name: '👤 اسم العضو', value: `${message.author} (${message.author.tag})`, inline: true },
+                { name: '🆔 الآيدي', value: `\`${message.author.id}\``, inline: true }
+            )
+            .setColor(0x5865F2)
+            .setTimestamp()
+            .setFooter({ text: guild.name, iconURL: guild.iconURL() });
+
+        await inboxChannel.send({ embeds: [dmEmbed] });
+    } catch (error) {
+        console.error('خطأ أثناء تحويل رسالة الخاص:', error);
+    }
+});
+
 // الحماية الذكية لميوت البوت وميوت الإداريين
 client.on('voiceStateUpdate', async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
@@ -159,12 +191,10 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// تنفيذ الأزرار، القوائم المنسدلة، واختيار الرولات/الأعضاء والنوافذ المنبثقة
 client.on('interactionCreate', async interaction => {
     try {
         const guild = await interaction.guild.fetch();
 
-        // 1. التعامل مع قوائم اختيار الرولات (Role Select Menu)
         if (interaction.isRoleSelectMenu()) {
             if (interaction.customId.startsWith('role_select_')) {
                 const vcId = interaction.customId.split('_')[2];
@@ -186,7 +216,6 @@ client.on('interactionCreate', async interaction => {
             }
         }
 
-        // 2. التعامل مع قوائم اختيار الأعضاء (User Select Menu)
         if (interaction.isUserSelectMenu()) {
             if (interaction.customId.startsWith('user_select_')) {
                 const vcId = interaction.customId.split('_')[2];
@@ -208,7 +237,6 @@ client.on('interactionCreate', async interaction => {
             }
         }
 
-        // 3. التعامل مع القوائم المنسدلة النصية (String Select Menu)
         if (interaction.isStringSelectMenu()) {
             if (interaction.customId.startsWith('msg_menu_')) {
                 const selectedValue = interaction.values[0];
@@ -262,9 +290,8 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
-        // 4. التعامل مع النوافذ المنبثقة (Modals) وإرسال رسائل الـ Embed الفخمة
         if (interaction.isModalSubmit()) {
-            // أ. إرسال لأصحاب الرول بصيغة Embed فخم
+            // أ. إرسال لأصحاب الرول وتفعيل صلاحية الرد لهم
             if (interaction.customId.startsWith('modal_role_msg_')) {
                 const parts = interaction.customId.split('_');
                 const roleId = parts[4];
@@ -280,11 +307,10 @@ client.on('interactionCreate', async interaction => {
                     return interaction.editReply('❌ عذراً، لا يوجد أي عضو يملك هذا الرول حالياً.');
                 }
 
-                // تصميم الـ Embed للرول
                 const roleEmbed = new EmbedBuilder()
                     .setTitle('📢 تنبيه إداري رسمي')
                     .setDescription(messageText)
-                    .setColor(0x5865F2) // لون ديسكورد المميز
+                    .setColor(0x5865F2)
                     .setTimestamp()
                     .setFooter({ text: guild.name, iconURL: guild.iconURL() });
 
@@ -294,16 +320,17 @@ client.on('interactionCreate', async interaction => {
                 for (const [memberId, member] of membersWithRole) {
                     try {
                         await member.send({ embeds: [roleEmbed] });
+                        allowedDmUsers.add(member.id); // السماح له بالرد
                         successCount++;
                     } catch (err) {
                         failCount++;
                     }
                 }
 
-                return interaction.editReply(`✅ تمت الإرسال بنجاح إلى **${successCount}** عضو يحملون رول **${targetRole.name}** بالشكل الجديد! (فشل لـ ${failCount} بسبب إغلاق الخاص).`);
+                return interaction.editReply(`✅ تمت الإرسال بنجاح إلى **${successCount}** عضو يحملون رول **${targetRole.name}**! (فشل لـ ${failCount} بسبب إغلاق الخاص).`);
             }
 
-            // ب. إرسال لعضو محدد شخصياً بصيغة Embed فخم
+            // ب. إرسال لعضو محدد وتفعيل صلاحية الرد له
             if (interaction.customId.startsWith('modal_user_msg_')) {
                 const parts = interaction.customId.split('_');
                 const userId = parts[4];
@@ -317,16 +344,17 @@ client.on('interactionCreate', async interaction => {
                         return interaction.editReply('❌ لم يتم العثور على هذا العضو في السيرفر.');
                     }
 
-                    // تصميم الـ Embed الشخصي
                     const userEmbed = new EmbedBuilder()
                         .setTitle('✉️ توجيه أو تنبيه خاص لك')
                         .setDescription(messageText)
-                        .setColor(0xFEE75C) // لون أصفر مميز للتنبيهات الشخصية
+                        .setColor(0xFEE75C)
                         .setTimestamp()
                         .setFooter({ text: guild.name, iconURL: guild.iconURL() });
 
                     await targetMember.send({ embeds: [userEmbed] });
-                    return interaction.editReply(`✅ تمت إرسال الرسالة الشخصية بنجاح إلى العضو **${targetMember.user.tag}** بالنمط الجديد!`);
+                    allowedDmUsers.add(targetMember.id); // السماح له بالرد
+                    
+                    return interaction.editReply(`✅ تمت إرسال الرسالة الشخصية بنجاح إلى العضو **${targetMember.user.tag}**!`);
                 } catch (err) {
                     return interaction.editReply('❌ فشل إرسال الرسالة الخاصة لهذا العضو (قد يكون مقفل الخاص أو البوت لا يمتلك صلاحية).');
                 }
@@ -334,7 +362,6 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
-        // 5. التعامل مع أزرار الميوت والفك القديمة
         if (!interaction.isButton()) return;
 
         const [action, channelId] = interaction.customId.split('_');
