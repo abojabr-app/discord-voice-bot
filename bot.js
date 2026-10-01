@@ -34,15 +34,19 @@ const LOG_CHANNEL_ID = '1539617469201915964'; // آيدي قناة ميوت-ال
 // قائمة خاصة لتتبع الأعضاء الذين تم كتمهم بواسطة البوت حصرياً
 const botMutedMembers = new Set();
 
-// دالة لتوليد أزرار الرومات النشطة (بالطول) مع قائمة النقل المضافة
+// دالة لتوليد لوحة تحكم الرومات النشطة مع قوائم نقل مرتبة ومنفردة
 async function getVoiceControlPanel(guild) {
     await guild.channels.fetch();
     const activeVoiceChannels = guild.channels.cache.filter(c => c.isVoiceBased() && c.members.size > 0);
-    const allVoiceChannels = guild.channels.cache.filter(c => c.isVoiceBased());
+    
+    // جلب جميع الرومات الصوتية مرتبة حسب ترتيب السيرفر (Position)
+    const allVoiceChannels = guild.channels.cache
+        .filter(c => c.isVoiceBased())
+        .sort((a, b) => a.position - b.position);
 
     const embed = new EmbedBuilder()
         .setTitle('🎙️ لوحة تحكم الرومات النشطة')
-        .setDescription('الرومات النشطة حالياً والأزرار مرتبة بالطول للتحكم الفوري والصامت، مع قائمة النقل السريع:')
+        .setDescription('الرومات النشطة حالياً والأزرار مرتبة للتحكم الفوري، مع قوائم نقل مرتبة ومنفردة:')
         .setColor(0x2f3136);
 
     const rows = [];
@@ -66,12 +70,13 @@ async function getVoiceControlPanel(guild) {
             );
             rows.push(row);
 
-            // 2. قائمة النقل المضافة حديثاً لكل روم نشط
+            // 2. قائمة منسدلة منفردة ومرتبة حسب ترتيب السيرفر
             const options = [];
             allVoiceChannels.forEach(targetVc => {
                 if (targetVc.id !== vc.id) {
                     options.push({
-                        label: `نقل إلى: ${targetVc.name}`.slice(0, 100),
+                        label: targetVc.name.slice(0, 100),
+                        description: `نقل أعضاء ${vc.name} إلى هذا الروم`,
                         value: `move_${vc.id}_to_${targetVc.id}`
                     });
                 }
@@ -80,7 +85,7 @@ async function getVoiceControlPanel(guild) {
             if (options.length > 0) {
                 const selectMenu = new StringSelectMenuBuilder()
                     .setCustomId(`select_move_${vc.id}`)
-                    .setPlaceholder(`🔀 نقل أعضاء [ ${vc.name} ] إلى...`)
+                    .setPlaceholder(`📂 اختر روم لنقل أعضاء [ ${vc.name} ]...`)
                     .addOptions(options.slice(0, 25));
 
                 const menuRow = new ActionRowBuilder().addComponents(selectMenu);
@@ -142,7 +147,7 @@ client.on('interactionCreate', async interaction => {
     try {
         const guild = await interaction.guild.fetch();
 
-        // 1. معالجة القائمة المنسدلة للنقل
+        // 1. معالجة القائمة المنسدلة للنقل المرتبة
         if (interaction.isStringSelectMenu()) {
             if (interaction.customId.startsWith('select_move_')) {
                 await interaction.deferUpdate();
