@@ -35,9 +35,9 @@ const INBOX_CHANNEL_ID = '1555355545504850103';
 const botMutedMembers = new Set();
 const voiceControlMessages = new Map();
 
-// إرسال اللوحة الرئيسية الكاملة عند التشغيل
+// إرسال اللوحة الرئيسية عند التشغيل
 client.once('ready', async () => {
-    console.log(`Bot logged in as ${client.user.tag}!`);
+    console.log(`Bot logged in as ${client.user.tag}![cite: 6]`);
 
     try {
         const guild = await client.guilds.fetch(GUILD_ID);
@@ -45,7 +45,6 @@ client.once('ready', async () => {
 
         if (channel && channel.isTextBased()) {
             const messages = await channel.messages.fetch({ limit: 10 });
-            // نبحث إذا كانت اللوحة الرئيسية موجودة مسبقاً عشان ما نكرر إرسالها
             const existingMain = messages.find(m => m.embeds.length > 0 && m.embeds[0].title && m.embeds[0].title.includes('لوحة تحكم الرومات الصوتية'));
 
             if (!existingMain) {
@@ -85,7 +84,7 @@ client.once('ready', async () => {
                         .setStyle(ButtonStyle.Primary),
                     new ButtonBuilder()
                         .setCustomId('global_send_user_btn')
-                        .setLabel('✉️️ إرسال رسالة لعضو معين')
+                        .setLabel('✉ إرسال رسالة لعضو معين')
                         .setStyle(ButtonStyle.Secondary)
                 ));
 
@@ -185,7 +184,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// التعامل مع الأزرار، القوائم، والمودال بالكامل
+// التعامل مع الأزرار والقوائم والمودال مع منع خطأ "didn't respond in time"
 client.on('interactionCreate', async interaction => {
     try {
         const guild = await interaction.guild.fetch();
