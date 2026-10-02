@@ -148,32 +148,38 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         }
     }
 
-    const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
-    if (!logChannel || !logChannel.isTextBased()) return;
-
-    // فحص الرومات الخاصة (تنبيه عند دخول شخص لغرفة شخص آخر إذا لم يكن هو المالك)
+    // فحص الرومات الخاصة (إرسال تنبيه في الخاص لصاحب الروم إذا دخل شخص وهو ليس موجوداً)
     if (newState.channel && SPECIAL_ROOMS[newState.channel.id]) {
         const ownerId = SPECIAL_ROOMS[newState.channel.id];
-        // تحقق أن العضو الداخل ليس هو صاحب الروم نفسه
+        // التأكد أن العضو الداخل ليس هو صاحب الروم نفسه
         if (memberId !== ownerId) {
-            // تحقق إذا كان صاحب الروم غير موجود أساساً في نفس الروم الصوتي
             const isOwnerInside = newState.channel.members.has(ownerId);
+            // إذا لم يكن صاحب الروم موجوداً في الغرفة
             if (!isOwnerInside) {
-                const alertEmbed = new EmbedBuilder()
-                    .setTitle('🚨 تنبيه دخول روم خاص')
-                    .setDescription(`دخل شخص إلى روم خاص لا يملكه وصاحب الروم ليس داخله!`)
-                    .addFields(
-                        { name: '👤 الشخص الداخل', value: `${newState.member} (\`${newState.member.user.tag}\`)`, inline: true },
-                        { name: '🔊 اسم الروم', value: `${newState.channel.name}`, inline: true },
-                        { name: '👑 صاحب الروم', value: `<@${ownerId}>`, inline: true }
-                    )
-                    .setColor(0xED4245)
-                    .setTimestamp();
-                
-                await logChannel.send({ embeds: [alertEmbed] }).catch(() => {});
+                try {
+                    const ownerMember = await guild.members.fetch(ownerId);
+                    if (ownerMember) {
+                        const alertEmbed = new EmbedBuilder()
+                            .setTitle('🚨 تنبيه: شخص دخل رومك الخاص!')
+                            .setDescription(`دخل شخص إلى رومك الصوتي وصاحب الروم غير موجود داخله حالياً.`)
+                            .addFields(
+                                { name: '👤 الشخص الداخل', value: `${newState.member} (\`${newState.member.user.tag}\`)`, inline: true },
+                                { name: '🔊 اسم الروم', value: `${newState.channel.name}`, inline: true }
+                            )
+                            .setColor(0xED4245)
+                            .setTimestamp();
+
+                        await ownerMember.send({ embeds: [alertEmbed] }).catch(() => {});
+                    }
+                } catch (e) {
+                    console.error('خطأ في إرسال التنبيه الخاص لصاحب الروم:', e);
+                }
             }
         }
     }
+
+    const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
+    if (!logChannel || !logChannel.isTextBased()) return;
 
     // حذف رسالة التحكم إذا أصبح الروم فاضياً
     if (oldState.channel && oldState.channel.members.size === 0) {
