@@ -34,6 +34,7 @@ const INBOX_CHANNEL_ID = '1555355545504850103';
 
 const botMutedMembers = new Set();
 
+// دالة لوحة تحكم خفيفة وآمنة لا تتجاوز حدود ديسكورد أبداً
 async function getVoiceControlPanel(guild) {
     await guild.channels.fetch();
     const allVoiceChannels = guild.channels.cache
@@ -41,57 +42,46 @@ async function getVoiceControlPanel(guild) {
         .sort((a, b) => a.position - b.position);
 
     const embed = new EmbedBuilder()
-        .setTitle('🎙️ لوحة تحكم الرومات النشطة والدائمة')
-        .setDescription('إليك جميع الرومات الصوتية في السيرفر مع خيارات التحكم، النقل، وإرسال الرسائل الخاصة:')
+        .setTitle('🎙️ لوحة تحكم الرومات الصوتية')
+        .setDescription('استخدم القائمة أدناه لاختيار الروم وإرسال رسائل خاصة، أو تحكم بأبرز الرومات:')
         .setColor(0x2f3136);
 
     const rows = [];
 
     if (allVoiceChannels.size === 0) {
-        embed.addFields({ name: 'الحالة', value: 'لا توجد رومات صوتية في السيرفر حالياً.' });
+        embed.addFields({ name: 'الحالة', value: 'لا توجد رومات صوتية حالياً.' });
     } else {
-        // قائمة منسوحة لاختيار الروم لعمليات الإرسال الخاصة تفادياً لحدود ديسكورد
-        const msgOptions = [];
+        // قائمة منسوحة ذكية وآمنة لجميع الرومات
+        const roomOptions = [];
         allVoiceChannels.forEach(vc => {
-            msgOptions.push({
+            roomOptions.push({
                 label: vc.name.slice(0, 100),
-                description: `خيارات إرسال رسائل من روم: ${vc.name}`.slice(0, 100),
-                value: `panel_msg_vc_${vc.id}`
+                description: `خيارات إرسال وتحكم لـ: ${vc.name}`.slice(0, 100),
+                value: `manage_room_${vc.id}`
             });
         });
 
-        if (msgOptions.length > 0) {
-            rows.appendItem ? null : null; // للتوضيح
-            rows.push(new ActionRowBuilder().addComponents(
-                new StringSelectMenuBuilder()
-                    .setCustomId('global_msg_select_room')
-                    .setPlaceholder('✉️ اختر الروم لإرسال رسالة (لرول أو عضو)...')
-                    .addOptions(msgOptions.slice(0, 25))
-            ));
-        }
+        rows.push(new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder()
+                .setCustomId('select_room_actions')
+                .setPlaceholder('📂 اختر روم للتحكم أو إرسال الرسائل...')
+                .addOptions(roomOptions.slice(0, 25))
+        ));
 
-        // عرض الرومات مع أزرار الميوت السريعة (نأخذ أول 8 رومات كحد أقصى عشان ما نتجاوز الحد المسموح للأزرار)
-        let count = 0;
-        allVoiceChannels.forEach(vc => {
-            if (count >= 8) return; // حماية لعدم تجاوز الحد الأقصى للمكونات
-            count++;
-
-            const memberCount = vc.members.size;
-            const muteRow = new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId(`mute_${vc.id}`)
-                    .setLabel(`🔇 ميوت ${vc.name.slice(0, 15)} (${memberCount})`)
-                    .setStyle(ButtonStyle.Danger),
-                new ButtonBuilder()
-                    .setCustomId(`unmute_${vc.id}`)
-                    .setLabel(`🔊 فك (${memberCount})`)
-                    .setStyle(ButtonStyle.Success)
-            );
-            rows.push(muteRow);
-        });
+        // زر عام للإرسال المباشر لأي رول أو عضو بالسرفر
+        rows.push(new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('global_send_role_btn')
+                .setLabel('📢 إرسال رسالة لرول معين')
+                .setStyle(ButtonStyle.Primary),
+            new ButtonBuilder()
+                .setCustomId('global_send_user_btn')
+                .setLabel('✉️ إرسال رسالة لعضو معين')
+                .setStyle(ButtonStyle.Secondary)
+        ));
     }
 
-    return { embeds: [embed], components: rows.slice(0, 25) };
+    return { embeds: [embed], components: rows };
 }
 
 let panelMessage = null;
@@ -116,6 +106,7 @@ client.once('ready', async () => {
     }
 });
 
+// تحويل رسائل الخاص
 client.on('messageCreate', async message => {
     if (message.guild || message.author.bot) return;
 
@@ -169,13 +160,36 @@ client.on('interactionCreate', async interaction => {
     try {
         const guild = await interaction.guild.fetch();
 
+        if (interaction.isButton()) {
+            if (interaction.customId === 'global_send_role_btn') {
+                const roleSelect = new RoleSelectMenuBuilder()
+                    .setCustomId('direct_role_select')
+                    .setPlaceholder('🎯 اختر الرول المستهدف للإرسال')
+                    .setMinValues(1)
+                    .setMaxValues(1);
+
+                const row = new ActionRowBuilder().addComponents(roleSelect);
+                return await interaction.reply({ content: '👇 اختر الرول المطلوب إرسال الرسالة لأصحابه:', components: [row], ephemeral: true });
+            }
+
+            if (interaction.customId === 'global_send_user_btn') {
+                const userSelect = new UserSelectMenuBuilder()
+                    .setCustomId('direct_user_select')
+                    .setPlaceholder('👤 اختر العضو المستهدف')
+                    .setMinValues(1)
+                    .setMaxValues(1);
+
+                const row = new ActionRowBuilder().addComponents(userSelect);
+                return await interaction.reply({ content: '👇 اختر العضو المطلوب إرسال الرسالة الشخصية له:', components: [row], ephemeral: true });
+            }
+        }
+
         if (interaction.isRoleSelectMenu()) {
-            if (interaction.customId.startsWith('role_select_')) {
-                const vcId = interaction.customId.split('_')[2];
+            if (interaction.customId === 'direct_role_select') {
                 const selectedRoleId = interaction.values[0];
 
                 const modal = new ModalBuilder()
-                    .setCustomId(`modal_role_msg_${vcId}_${selectedRoleId}`)
+                    .setCustomId(`modal_role_msg_${selectedRoleId}`)
                     .setTitle('اكتب رسالة أصحاب الرول');
 
                 const messageInput = new TextInputBuilder()
@@ -191,12 +205,11 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.isUserSelectMenu()) {
-            if (interaction.customId.startsWith('user_select_')) {
-                const vcId = interaction.customId.split('_')[2];
+            if (interaction.customId === 'direct_user_select') {
                 const selectedUserId = interaction.values[0];
 
                 const modal = new ModalBuilder()
-                    .setCustomId(`modal_user_msg_${vcId}_${selectedUserId}`)
+                    .setCustomId(`modal_user_msg_${selectedUserId}`)
                     .setTitle('رسالة توجيه/تنبيه شخصية');
 
                 const messageInput = new TextInputBuilder()
@@ -212,63 +225,55 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.isStringSelectMenu()) {
-            if (interaction.customId === 'global_msg_select_room') {
-                const selectedValue = interaction.values[0];
-                const vcId = selectedValue.split('_')[3];
-
+            if (interaction.customId === 'select_room_actions') {
+                const vcId = interaction.values[0].split('_')[2];
                 const actionSelect = new StringSelectMenuBuilder()
-                    .setCustomId(`action_type_menu_${vcId}`)
-                    .setPlaceholder('⚙️ اختر نوع الإرسال المستهدف...')
+                    .setCustomId(`room_sub_action_${vcId}`)
+                    .setPlaceholder('⚙️ اختر العملية المطلوبة لهذا الروم...')
                     .addOptions([
-                        {
-                            label: 'إرسال رسالة لأصحاب رول معين',
-                            description: 'تحديد رول لإرسال رسالة خاصة لكل من يملكه',
-                            value: `choose_role_${vcId}`
-                        },
-                        {
-                            label: 'إرسال رسالة شخصية لعضو محدد',
-                            description: 'تحديد شخص معين لإرسال تنبيه أو توجيه خاص له',
-                            value: `choose_user_${vcId}`
-                        }
+                        { label: '🔇 ميوت جميع أعضاء الروم', value: `mute_${vcId}` },
+                        { label: '🔊 فك الميوت عن أعضاء الروم', value: `unmute_${vcId}` }
                     ]);
 
                 const row = new ActionRowBuilder().addComponents(actionSelect);
-                return await interaction.reply({ content: '👇 اختر نوع الإرسال المطلوب:', components: [row], ephemeral: true });
+                return await interaction.reply({ content: '👇 ماذا تريد أن تفعل بهذا الروم؟', components: [row], ephemeral: true });
             }
 
-            if (interaction.customId.startsWith('action_type_menu_')) {
-                const vcId = interaction.customId.split('_')[3];
-                const selectedValue = interaction.values[0];
+            if (interaction.customId.startsWith('room_sub_action_')) {
+                const selectedVal = interaction.values[0];
+                const [action, channelId] = selectedVal.split('_');
 
-                if (selectedValue.startsWith('choose_role_')) {
-                    const roleSelect = new RoleSelectMenuBuilder()
-                        .setCustomId(`role_select_${vcId}`)
-                        .setPlaceholder('🎯 اختر الرول المستهدف')
-                        .setMinValues(1)
-                        .setMaxValues(1);
+                await interaction.deferUpdate();
 
-                    const row = new ActionRowBuilder().addComponents(roleSelect);
-                    return await interaction.update({ content: '👇 اختر الرول المطلوب إرسال الرسالة لأصحابه:', components: [row] });
-                } 
-                
-                if (selectedValue.startsWith('choose_user_')) {
-                    const userSelect = new UserSelectMenuBuilder()
-                        .setCustomId(`user_select_${vcId}`)
-                        .setPlaceholder('👤 اختر العضو المستهدف لتنبيهه')
-                        .setMinValues(1)
-                        .setMaxValues(1);
+                const channel = await guild.channels.fetch(channelId).catch(() => {});
+                if (!channel || !channel.isVoiceBased()) return;
 
-                    const row = new ActionRowBuilder().addComponents(userSelect);
-                    return await interaction.update({ content: '👇 اختر العضو المطلوب إرسال الرسالة الشخصية له:', components: [row] });
-                }
+                const shouldMute = (action === 'mute');
+                const promises = [];
+
+                channel.members.forEach(member => {
+                    if (member.voice) {
+                        if (shouldMute) {
+                            botMutedMembers.add(member.id);
+                            promises.push(member.voice.setMute(true).catch(() => {}));
+                        } else {
+                            if (botMutedMembers.has(member.id)) {
+                                botMutedMembers.delete(member.id);
+                                promises.push(member.voice.setMute(false).catch(() => {}));
+                            }
+                        }
+                    }
+                });
+
+                await Promise.all(promises);
+                return interaction.followUp({ content: `✅ تم تنفيذ العملية بنجاح على روم **${channel.name}**!`, ephemeral: true });
             }
             return;
         }
 
         if (interaction.isModalSubmit()) {
             if (interaction.customId.startsWith('modal_role_msg_')) {
-                const parts = interaction.customId.split('_');
-                const roleId = parts[4];
+                const roleId = interaction.customId.split('_')[3];
                 const messageText = interaction.fields.getTextInputValue('role_message_text');
 
                 await interaction.deferReply({ ephemeral: true });
@@ -304,8 +309,7 @@ client.on('interactionCreate', async interaction => {
             }
 
             if (interaction.customId.startsWith('modal_user_msg_')) {
-                const parts = interaction.customId.split('_');
-                const userId = parts[4];
+                const userId = interaction.customId.split('_')[3];
                 const messageText = interaction.fields.getTextInputValue('user_message_text');
 
                 await interaction.deferReply({ ephemeral: true });
@@ -331,35 +335,6 @@ client.on('interactionCreate', async interaction => {
             }
             return;
         }
-
-        if (!interaction.isButton()) return;
-
-        const [action, channelId] = interaction.customId.split('_');
-        if (action !== 'mute' && action !== 'unmute') return;
-
-        await interaction.deferUpdate();
-
-        const channel = await guild.channels.fetch(channelId).catch(() => {});
-        if (!channel || !channel.isVoiceBased()) return;
-
-        const shouldMute = (action === 'mute');
-        const promises = [];
-
-        channel.members.forEach(member => {
-            if (member.voice) {
-                if (shouldMute) {
-                    botMutedMembers.add(member.id);
-                    promises.push(member.voice.setMute(true).catch(() => {}));
-                } else {
-                    if (botMutedMembers.has(member.id)) {
-                        botMutedMembers.delete(member.id);
-                        promises.push(member.voice.setMute(false).catch(() => {}));
-                    }
-                }
-            }
-        });
-
-        await Promise.all(promises);
     } catch (error) {
         console.error(error);
     }
