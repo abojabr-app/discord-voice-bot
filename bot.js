@@ -37,60 +37,53 @@ const voiceControlMessages = new Map();
 
 // إرسال اللوحة الرئيسية عند التشغيل
 client.once('ready', async () => {
-    console.log(`Bot logged in as ${client.user.tag}![cite: 6]`);
+    console.log(`Bot logged in as ${client.user.tag}!`);
 
     try {
         const guild = await client.guilds.fetch(GUILD_ID);
         const channel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
 
         if (channel && channel.isTextBased()) {
-            const messages = await channel.messages.fetch({ limit: 10 });
-            const existingMain = messages.find(m => m.embeds.length > 0 && m.embeds[0].title && m.embeds[0].title.includes('لوحة تحكم الرومات الصوتية'));
+            const embed = new EmbedBuilder()
+                .setTitle('🎙️ لوحة تحكم الرومات الصوتية')
+                .setDescription('استخدم القائمة أدناه لاختيار الروم وإرسال رسائل خاصة، أو تحكم بأبرز الرومات:')
+                .setColor(0x2f3136);
 
-            if (!existingMain) {
-                await channel.bulkDelete(messages).catch(() => {});
+            const rows = [];
+            await guild.channels.fetch();
+            const allVoiceChannels = guild.channels.cache.filter(c => c.isVoiceBased());
 
-                const embed = new EmbedBuilder()
-                    .setTitle('🎙️ لوحة تحكم الرومات الصوتية')
-                    .setDescription('استخدم القائمة أدناه لاختيار الروم وإرسال رسائل خاصة، أو تحكم بأبرز الرومات:')
-                    .setColor(0x2f3136);
-
-                const rows = [];
-                await guild.channels.fetch();
-                const allVoiceChannels = guild.channels.cache.filter(c => c.isVoiceBased());
-
-                const roomOptions = [];
-                allVoiceChannels.forEach(vc => {
-                    roomOptions.push({
-                        label: vc.name.slice(0, 100),
-                        description: `خيارات إرسال وتحكم لـ: ${vc.name}`.slice(0, 100),
-                        value: `manage_room_${vc.id}`
-                    });
+            const roomOptions = [];
+            allVoiceChannels.forEach(vc => {
+                roomOptions.push({
+                    label: vc.name.slice(0, 100),
+                    description: `خيارات إرسال وتحكم لـ: ${vc.name}`.slice(0, 100),
+                    value: `manage_room_${vc.id}`
                 });
+            });
 
-                if (roomOptions.length > 0) {
-                    rows.push(new ActionRowBuilder().addComponents(
-                        new StringSelectMenuBuilder()
-                            .setCustomId('select_room_actions')
-                            .setPlaceholder('📂 اختر روم للتحكم أو إرسال الرسائل...')
-                            .addOptions(roomOptions.slice(0, 25))
-                    ));
-                }
-
+            if (roomOptions.length > 0) {
                 rows.push(new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId('global_send_role_btn')
-                        .setLabel('📢 إرسال رسالة لرول معين')
-                        .setStyle(ButtonStyle.Primary),
-                    new ButtonBuilder()
-                        .setCustomId('global_send_user_btn')
-                        .setLabel('✉ إرسال رسالة لعضو معين')
-                        .setStyle(ButtonStyle.Secondary)
+                    new StringSelectMenuBuilder()
+                        .setCustomId('select_room_actions')
+                        .setPlaceholder('📂 اختر روم للتحكم أو إرسال الرسائل...')
+                        .addOptions(roomOptions.slice(0, 25))
                 ));
-
-                await channel.send({ embeds: [embed], components: rows });
-                console.log('تم إرسال اللوحة الرئيسية بنجاح!');
             }
+
+            rows.push(new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('global_send_role_btn')
+                    .setLabel('📢 إرسال رسالة لرول معين')
+                    .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
+                    .setCustomId('global_send_user_btn')
+                    .setLabel('✉ إرسال رسالة لعضو معين')
+                    .setStyle(ButtonStyle.Secondary)
+            ));
+
+            await channel.send({ embeds: [embed], components: rows });
+            console.log('تم إرسال اللوحة الرئيسية بنجاح!');
         }
     } catch (error) {
         console.error('خطأ عند بدء البوت:', error);
@@ -184,7 +177,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// التعامل مع الأزرار والقوائم والمودال مع منع خطأ "didn't respond in time"
+// التعامل مع الأزرار، القوائم، والمودال بالكامل
 client.on('interactionCreate', async interaction => {
     try {
         const guild = await interaction.guild.fetch();
