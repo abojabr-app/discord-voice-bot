@@ -33,7 +33,7 @@ const LOG_CHANNEL_ID = '1539617469201915964';
 const INBOX_CHANNEL_ID = '1555355545504850103';
 const MANAGER_ROOM_ID = '1555573365748531251'; // روم مدير القروب
 
-// جدول الرومات الخاصة وأصحابها (روم صوتي -> آيدي الشخص)
+// جدول الرومات الخاصة وأصحابها
 const SPECIAL_ROOMS = {
     '1431905620230930473': '1218664301729026254',
     '1329454808553357312': '890351885339480115',
@@ -44,20 +44,20 @@ const SPECIAL_ROOMS = {
 const botMutedMembers = new Set();
 const voiceControlMessages = new Map();
 
-// إرسال اللوحات عند التشغيل (روم السجلات + روم مدير القروب)
+// إرسال اللوحات عند التشغيل وتنظيف رسايل التيست السابقة تلقائياً
 client.once('ready', async () => {
     console.log(`Bot logged in as ${client.user.tag}!`);
 
     try {
         const guild = await client.guilds.fetch(GUILD_ID);
 
-        // 1. إعداد روم السجلات الرئيسي
+        // 1. تنظيف وإعداد روم السجلات الرئيسي
         const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
         if (logChannel && logChannel.isTextBased()) {
             try {
-                const fetchedMessages = await logChannel.messages.fetch({ limit: 10 });
+                const fetchedMessages = await logChannel.messages.fetch({ limit: 50 });
                 for (const msg of fetchedMessages.values()) {
-                    if (msg.author.id === client.user.id) await msg.delete().catch(() => {});
+                    await msg.delete().catch(() => {});
                 }
             } catch (e) {}
 
@@ -95,13 +95,13 @@ client.once('ready', async () => {
             await logChannel.send({ embeds: [embed], components: rows });
         }
 
-        // 2. إعداد روم مدير القروب الجديد
+        // 2. تنظيف وإعداد روم مدير القروب
         const managerChannel = await guild.channels.fetch(MANAGER_ROOM_ID).catch(() => {});
         if (managerChannel && managerChannel.isTextBased()) {
             try {
-                const fetchedManagerMsgs = await managerChannel.messages.fetch({ limit: 10 });
+                const fetchedManagerMsgs = await managerChannel.messages.fetch({ limit: 50 });
                 for (const msg of fetchedManagerMsgs.values()) {
-                    if (msg.author.id === client.user.id) await msg.delete().catch(() => {});
+                    await msg.delete().catch(() => {});
                 }
             } catch (e) {}
 
@@ -116,7 +116,28 @@ client.once('ready', async () => {
             );
 
             await managerChannel.send({ embeds: [managerEmbed], components: [managerRow] });
-            console.log('تم إرسال لوحة مدير القروب بنجاح!');
+        }
+
+        // 3. تنظيف روم الإنبوت المطلوب (1555355545504850103) بالكامل لإزالة رسائل التيست للإطلاق الرسمي
+        const inboxChannel = await guild.channels.fetch(INBOX_CHANNEL_ID).catch(() => {});
+        if (inboxChannel && inboxChannel.isTextBased()) {
+            try {
+                let fetched;
+                do {
+                    fetched = await inboxChannel.messages.fetch({ limit: 100 });
+                    if (fetched.size > 0) {
+                        await inboxChannel.bulkDelete(fetched, true).catch(async () => {
+                            // لو الرسائل قديمة أكثر من أسبوع يتم حذفها فرداً فرداً
+                            for (const msg of fetched.values()) {
+                                await msg.delete().catch(() => {});
+                            }
+                        });
+                    }
+                } while (fetched.size >= 100);
+                console.log('تم تنظيف روم الإنبوت بنجاح للإطلاق الرسمي!');
+            } catch (e) {
+                console.error('خطأ أثناء تنظيف روم الإنبوت:', e);
+            }
         }
 
     } catch (error) {
@@ -126,6 +147,17 @@ client.once('ready', async () => {
 
 // تحويل رسائل الخاص الواردة إلى روم الإنبوت
 client.on('messageCreate', async message => {
+    // أمر سري لتنظيف الرومات يدوياً لو احتجت في أي وقت: اكتب !clear_inbox في روم الإنبوت
+    if (message.content === '!clear_inbox' && message.channel.id === INBOX_CHANNEL_ID) {
+        if (message.member && message.member.permissions.has('Administrator')) {
+            try {
+                const fetched = await message.channel.messages.fetch({ limit: 100 });
+                await message.channel.bulkDelete(fetched, true).catch(() => {});
+                return;
+            } catch (e) {}
+        }
+    }
+
     if (message.guild || message.author.bot) return;
 
     try {
@@ -152,7 +184,6 @@ client.on('messageCreate', async message => {
     }
 });
 
-// مراقبة دخول وخروج الأعضاء للرومات الصوتية وتنبيهات الخاص
 client.on('voiceStateUpdate', async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
     if (guild.id !== GUILD_ID) return;
@@ -185,9 +216,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 
                         await ownerMember.send({ embeds: [alertEmbed] }).catch(() => {});
                     }
-                } catch (e) {
-                    console.error('خطأ في إرسال التنبيه الخاص لصاحب الروم:', e);
-                }
+                } catch (e) {}
             }
         }
     }
@@ -207,7 +236,6 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 
     if (newState.channel && newState.channel.members.size > 0) {
         const vc = newState.channel;
-        
         if (!voiceControlMessages.has(vc.id)) {
             const embed = new EmbedBuilder()
                 .setTitle(`🎛️ خيارات الروم الصوتي: ${vc.name}`)
@@ -223,14 +251,12 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
             try {
                 const sentMsg = await logChannel.send({ embeds: [embed], components: [row] });
                 voiceControlMessages.set(vc.id, sentMsg.id);
-            } catch (err) {
-                console.error('خطأ عند إرسال رسالة الروم الصوتي:', err);
-            }
+            } catch (err) {}
         }
     }
 });
 
-// التعامل مع الأزرار والقوائم والمودال
+// التعامل مع الأزرار والقوائم والمودال مع ضمان عدم حدوث interaction failed
 client.on('interactionCreate', async interaction => {
     try {
         const guild = interaction.guild;
@@ -405,7 +431,7 @@ client.on('interactionCreate', async interaction => {
         if (interaction.isModalSubmit()) {
             if (interaction.customId.startsWith('modal_role_msg_')) {
                 const parts = interaction.customId.split('_');
-                const type = parts[3]; // admin أو manager
+                const type = parts[3]; 
                 const roleId = parts[4];
                 const messageText = interaction.fields.getTextInputValue('role_message_text');
 
@@ -427,26 +453,21 @@ client.on('interactionCreate', async interaction => {
                     .setFooter({ text: guild.name, iconURL: guild.iconURL() });
 
                 let successCount = 0;
-                let failCount = 0;
-
-                // جلب الأعضاء بشكل آمن للرول المحدد
                 const membersWithRole = targetRole.members.filter(m => !m.user.bot);
 
                 for (const [memberId, member] of membersWithRole) {
                     try {
                         await member.send({ embeds: [roleEmbed] });
                         successCount++;
-                    } catch (err) {
-                        failCount++;
-                    }
+                    } catch (err) {}
                 }
 
-                return interaction.editReply(`✅ تمت الإرسال بنجاح إلى **${successCount}** عضو يحملون رول **${targetRole.name}**!`);
+                return interaction.editReply(`✅ تم الإرسال بنجاح إلى **${successCount}** عضو يحملون رول **${targetRole.name}**!`);
             }
 
             if (interaction.customId.startsWith('modal_user_msg_')) {
                 const parts = interaction.customId.split('_');
-                const type = parts[3]; // admin أو manager
+                const type = parts[3]; 
                 const userId = parts[4];
                 const messageText = interaction.fields.getTextInputValue('user_message_text');
 
@@ -495,7 +516,7 @@ client.on('interactionCreate', async interaction => {
     } catch (error) {
         console.error('خطأ في التفاعل:', error);
         if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
-            await interaction.reply({ content: ' حدث خطأ أثناء معالجة هذا الطلب.', ephemeral: true }).catch(() => {});
+            await interaction.reply({ content: '❌ حدث خطأ أثناء معالجة هذا الطلب.', ephemeral: true }).catch(() => {});
         }
     }
 });
