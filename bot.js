@@ -32,6 +32,14 @@ const GUILD_ID = '1200422663424847882';
 const LOG_CHANNEL_ID = '1539617469201915964';
 const INBOX_CHANNEL_ID = '1555355545504850103';
 
+// جدول الرومات الخاصة وأصحابها (روم صوتي -> آيدي الشخص)
+const SPECIAL_ROOMS = {
+    '1431905620230930473': '1218664301729026254',
+    '1329454808553357312': '890351885339480115',
+    '1511922936297160834': '713105913334071358',
+    '1527063216860172429': '1173308991619743865'
+};
+
 const botMutedMembers = new Set();
 const voiceControlMessages = new Map();
 
@@ -44,7 +52,6 @@ client.once('ready', async () => {
         const channel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
 
         if (channel && channel.isTextBased()) {
-            // مسح الرسائل القديمة في القناة لتجنب التكرار
             try {
                 const fetchedMessages = await channel.messages.fetch({ limit: 10 });
                 for (const msg of fetchedMessages.values()) {
@@ -144,6 +151,31 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
     if (!logChannel || !logChannel.isTextBased()) return;
 
+    // فحص الرومات الخاصة (تنبيه عند دخول شخص لغرفة شخص آخر إذا لم يكن هو المالك)
+    if (newState.channel && SPECIAL_ROOMS[newState.channel.id]) {
+        const ownerId = SPECIAL_ROOMS[newState.channel.id];
+        // تحقق أن العضو الداخل ليس هو صاحب الروم نفسه
+        if (memberId !== ownerId) {
+            // تحقق إذا كان صاحب الروم غير موجود أساساً في نفس الروم الصوتي
+            const isOwnerInside = newState.channel.members.has(ownerId);
+            if (!isOwnerInside) {
+                const alertEmbed = new EmbedBuilder()
+                    .setTitle('🚨 تنبيه دخول روم خاص')
+                    .setDescription(`دخل شخص إلى روم خاص لا يملكه وصاحب الروم ليس داخله!`)
+                    .addFields(
+                        { name: '👤 الشخص الداخل', value: `${newState.member} (\`${newState.member.user.tag}\`)`, inline: true },
+                        { name: '🔊 اسم الروم', value: `${newState.channel.name}`, inline: true },
+                        { name: '👑 صاحب الروم', value: `<@${ownerId}>`, inline: true }
+                    )
+                    .setColor(0xED4245)
+                    .setTimestamp();
+                
+                await logChannel.send({ embeds: [alertEmbed] }).catch(() => {});
+            }
+        }
+    }
+
+    // حذف رسالة التحكم إذا أصبح الروم فاضياً
     if (oldState.channel && oldState.channel.members.size === 0) {
         if (voiceControlMessages.has(oldState.channel.id)) {
             try {
@@ -154,6 +186,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         }
     }
 
+    // إرسال رسالة التحكم للروم إذا دخل أعضاء
     if (newState.channel && newState.channel.members.size > 0) {
         const vc = newState.channel;
         
@@ -392,10 +425,8 @@ client.on('interactionCreate', async interaction => {
                         .setTimestamp()
                         .setFooter({ text: guild.name, iconURL: guild.iconURL() });
 
-                    // إرسال الرسالة للعضو في الخاص
                     await targetMember.send({ embeds: [userEmbed] });
 
-                    // إرسال نسخة من الرسالة إلى روم الـ Inbox عشان تتابع الردود
                     const inboxChannel = await guild.channels.fetch(INBOX_CHANNEL_ID).catch(() => {});
                     if (inboxChannel && inboxChannel.isTextBased()) {
                         const copyEmbed = new EmbedBuilder()
