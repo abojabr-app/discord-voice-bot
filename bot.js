@@ -37,25 +37,25 @@ const INBOX_CHANNEL_ID = '1555355545504850103'; // آيدي روم استقبا�
 // قائمة لتتبع الأعضاء المكتومين
 const botMutedMembers = new Set();
 
-// دالة توليد لوحة تحكم الرومات النشطة
+// دالة توليد لوحة التحكم (تعرض جميع الرومات الصوتية بشكل دائم)
 async function getVoiceControlPanel(guild) {
     await guild.channels.fetch();
-    const activeVoiceChannels = guild.channels.cache.filter(c => c.isVoiceBased() && c.members.size > 0);
     const allVoiceChannels = guild.channels.cache
         .filter(c => c.isVoiceBased())
         .sort((a, b) => a.position - b.position);
 
     const embed = new EmbedBuilder()
-        .setTitle('🎙️ لوحة تحكم الرومات النشطة')
-        .setDescription('الرومات النشطة حالياً، مع أزرار الميوت، قوائم النقل، وخيارات إرسال الرسائل الخاصة:')
+        .setTitle('🎙️ لوحة تحكم الرومات الدائمة')
+        .setDescription('جميع رومات السيرفر الصوتية متاحة هنا دائماً للتحكم، النقل، وإرسال الرسائل الخاصة:')
         .setColor(0x2f3136);
 
     const rows = [];
 
-    if (activeVoiceChannels.size === 0) {
-        embed.addFields({ name: 'الحالة', value: 'لا توجد رومات صوتية فيها أعضاء حالياً.' });
+    if (allVoiceChannels.size === 0) {
+        embed.addFields({ name: 'الحالة', value: 'لا توجد رومات صوتية في السيرفر حالياً.' });
     } else {
-        activeVoiceChannels.forEach(vc => {
+        // نضع خيار عام لإرسال الرسائل من أي روم أو ندرج الرومات في القوائم
+        allVoiceChannels.forEach(vc => {
             const memberCount = vc.members.size;
             
             const muteRow = new ActionRowBuilder().addComponents(
@@ -84,7 +84,7 @@ async function getVoiceControlPanel(guild) {
             if (moveOptions.length > 0) {
                 const selectMoveMenu = new StringSelectMenuBuilder()
                     .setCustomId(`select_move_${vc.id}`)
-                    .setPlaceholder(`📂 اختر روم لنقل أعضاء [ ${vc.name} ]...`)
+                    .setPlaceholder(`📂 نقل أعضاء [ ${vc.name.slice(0, 30)} ]...`)
                     .addOptions(moveOptions.slice(0, 25));
 
                 rows.push(new ActionRowBuilder().addComponents(selectMoveMenu));
@@ -92,7 +92,7 @@ async function getVoiceControlPanel(guild) {
 
             const msgSelectMenu = new StringSelectMenuBuilder()
                 .setCustomId(`msg_menu_${vc.id}`)
-                .setPlaceholder(`✉️ إرسال رسالة خاصة من [ ${vc.name} ]...`)
+                .setPlaceholder(`✉️ إرسال رسالة من روم [ ${vc.name.slice(0, 30)} ]...`)
                 .addOptions([
                     {
                         label: 'إرسال رسالة لأصحاب رول معين',
@@ -109,7 +109,7 @@ async function getVoiceControlPanel(guild) {
         });
     }
 
-    return { embeds: [embed], components: rows };
+    return { embeds: [embed], components: rows.slice(0, 25) }; // ديسكورد يسمح بحد أقصى 25 مكوناً في الرسالة
 }
 
 let panelMessage = null;
@@ -134,20 +134,15 @@ client.once('ready', async () => {
     }
 });
 
-// استقبال وتحويل رسائل الخاص مع طباعة بالكونسول للتأكد من وصولها
+// استقبال وتحويل رسائل الخاص
 client.on('messageCreate', async message => {
     if (message.guild || message.author.bot) return;
-
-    console.log(`استقبل البوت رسالة خاصة من: ${message.author.tag} (${message.author.id}) المحتوى: ${message.content}`);
 
     try {
         const guild = await client.guilds.fetch(GUILD_ID);
         const inboxChannel = await guild.channels.fetch(INBOX_CHANNEL_ID).catch(() => {});
 
-        if (!inboxChannel || !inboxChannel.isTextBased()) {
-            console.log('روم استقبال الردود غير موجود أو غير نصي!');
-            return;
-        }
+        if (!inboxChannel || !inboxChannel.isTextBased()) return;
 
         const dmEmbed = new EmbedBuilder()
             .setTitle('📥 رد جديد في الخاص (DM)')
@@ -162,13 +157,12 @@ client.on('messageCreate', async message => {
             .setFooter({ text: guild.name, iconURL: guild.iconURL() });
 
         await inboxChannel.send({ embeds: [dmEmbed] });
-        console.log('تم تحويل رسالة الخاص وإرسالها للروم بنجاح!');
     } catch (error) {
         console.error('خطأ أثناء تحويل رسالة الخاص:', error);
     }
 });
 
-// الحماية الذكية لميوت البوت وميوت الإداريين
+// تحديث اللوحة عند تغير حالة الرومات
 client.on('voiceStateUpdate', async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
     if (guild.id !== GUILD_ID) return;
@@ -291,7 +285,6 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.isModalSubmit()) {
-            // أ. إرسال لأصحاب الرول
             if (interaction.customId.startsWith('modal_role_msg_')) {
                 const parts = interaction.customId.split('_');
                 const roleId = parts[4];
@@ -329,7 +322,6 @@ client.on('interactionCreate', async interaction => {
                 return interaction.editReply(`✅ تمت الإرسال بنجاح إلى **${successCount}** عضو يحملون رول **${targetRole.name}**! (فشل لـ ${failCount} بسبب إغلاق الخاص).`);
             }
 
-            // ب. إرسال لعضو محدد
             if (interaction.customId.startsWith('modal_user_msg_')) {
                 const parts = interaction.customId.split('_');
                 const userId = parts[4];
