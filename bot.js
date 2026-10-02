@@ -35,53 +35,66 @@ const INBOX_CHANNEL_ID = '1555355545504850103';
 const botMutedMembers = new Set();
 const voiceControlMessages = new Map();
 
+// إرسال اللوحة الرئيسية الكاملة عند التشغيل
 client.once('ready', async () => {
     console.log(`Bot logged in as ${client.user.tag}!`);
 
-    // إرسال رسالة لوحة التحكم الرئيسية (القديمة) إذا لم تكن موجودة في القناة
     try {
         const guild = await client.guilds.fetch(GUILD_ID);
-        const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
-        if (logChannel && logChannel.isTextBased()) {
-            const messages = await logChannel.messages.fetch({ limit: 10 });
-            const existingMainMsg = messages.find(m => m.embeds.length > 0 && m.embeds[0].title && m.embeds[0].title.includes('لوحة تحكم الرومات الصوتية'));
-            
-            if (!existingMainMsg) {
-                const mainEmbed = new EmbedBuilder()
-                    .setTitle('🎛️ لوحة تحكم الرومات الصوتية')
-                    .setDescription('اختر روم للتحكم أو إرسال الرسائل:')
+        const channel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
+
+        if (channel && channel.isTextBased()) {
+            const messages = await channel.messages.fetch({ limit: 10 });
+            // نبحث إذا كانت اللوحة الرئيسية موجودة مسبقاً عشان ما نكرر إرسالها
+            const existingMain = messages.find(m => m.embeds.length > 0 && m.embeds[0].title && m.embeds[0].title.includes('لوحة تحكم الرومات الصوتية'));
+
+            if (!existingMain) {
+                await channel.bulkDelete(messages).catch(() => {});
+
+                const embed = new EmbedBuilder()
+                    .setTitle('🎙️ لوحة تحكم الرومات الصوتية')
+                    .setDescription('استخدم القائمة أدناه لاختيار الروم وإرسال رسائل خاصة، أو تحكم بأبرز الرومات:')
                     .setColor(0x2f3136);
 
-                const voiceChannels = guild.channels.cache.filter(c => c.isVoiceBased());
-                const selectOptions = [];
-                voiceChannels.forEach(vc => {
-                    selectOptions.push({
-                        label: vc.name,
-                        value: `select_vc_${vc.id}`
+                const rows = [];
+                await guild.channels.fetch();
+                const allVoiceChannels = guild.channels.cache.filter(c => c.isVoiceBased());
+
+                const roomOptions = [];
+                allVoiceChannels.forEach(vc => {
+                    roomOptions.push({
+                        label: vc.name.slice(0, 100),
+                        description: `خيارات إرسال وتحكم لـ: ${vc.name}`.slice(0, 100),
+                        value: `manage_room_${vc.id}`
                     });
                 });
 
-                if (selectOptions.length > 0) {
-                    const row1 = new ActionRowBuilder().addComponents(
+                if (roomOptions.length > 0) {
+                    rows.push(new ActionRowBuilder().addComponents(
                         new StringSelectMenuBuilder()
-                            .setCustomId('main_voice_select')
-                            .setPlaceholder('... اختر روم للتحكم أو إرسال الرسائل')
-                            .addOptions(selectOptions.slice(0, 25))
-                    );
-
-                    const row2 = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder()
-                            .setCustomId('send_msg_to_vc')
-                            .setLabel('إرسال رسالة للروم معين')
-                            .setStyle(ButtonStyle.Primary)
-                    );
-
-                    await logChannel.send({ embeds: [mainEmbed], components: [row1, row2] });
+                            .setCustomId('select_room_actions')
+                            .setPlaceholder('📂 اختر روم للتحكم أو إرسال الرسائل...')
+                            .addOptions(roomOptions.slice(0, 25))
+                    ));
                 }
+
+                rows.push(new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('global_send_role_btn')
+                        .setLabel('📢 إرسال رسالة لرول معين')
+                        .setStyle(ButtonStyle.Primary),
+                    new ButtonBuilder()
+                        .setCustomId('global_send_user_btn')
+                        .setLabel('✉️️ إرسال رسالة لعضو معين')
+                        .setStyle(ButtonStyle.Secondary)
+                ));
+
+                await channel.send({ embeds: [embed], components: rows });
+                console.log('تم إرسال اللوحة الرئيسية بنجاح!');
             }
         }
-    } catch (e) {
-        console.error('خطأ في إرسال اللوحة الرئيسية:', e);
+    } catch (error) {
+        console.error('خطأ عند بدء البوت:', error);
     }
 });
 
@@ -113,7 +126,7 @@ client.on('messageCreate', async message => {
     }
 });
 
-// مراقبة دخول وخروج الأعضاء من الرومات الصوتية (إرسال رسالة جديدة مستقلة للميوت أو حذفها إذا فاضي الروم)
+// مراقبة دخول وخروج الأعضاء للرومات (إرسال رسالة مستقلة للكتم عند الدخول، وحذفها إذا فاضي)
 client.on('voiceStateUpdate', async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
     if (guild.id !== GUILD_ID) return;
@@ -147,7 +160,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         if (!voiceControlMessages.has(vc.id)) {
             const embed = new EmbedBuilder()
                 .setTitle(`🎛️ خيارات الروم الصوتي: ${vc.name}`)
-                .setDescription(`تم دخول أعضاء إلى الروم. استخدم الأزرار أدناه لكتم أو فك الكتم:`)
+                .setDescription(`تم دخول أعضاء إلى هذا الروم. استخدم الأزرار أدناه لكتم أو فك الكتم عن أعضاء الروم:`)
                 .setColor(0x2f3136)
                 .setTimestamp();
 
@@ -172,13 +185,35 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// التعامل مع جميع الأزرار، القوائم، والمودال (القديمة والجديدة)
+// التعامل مع الأزرار، القوائم، والمودال بالكامل
 client.on('interactionCreate', async interaction => {
     try {
         const guild = await interaction.guild.fetch();
 
         if (interaction.isButton()) {
             const customId = interaction.customId;
+
+            if (customId === 'global_send_role_btn') {
+                const roleSelect = new RoleSelectMenuBuilder()
+                    .setCustomId('direct_role_select')
+                    .setPlaceholder('🎯 اختر الرول المستهدف للإرسال')
+                    .setMinValues(1)
+                    .setMaxValues(1);
+
+                const row = new ActionRowBuilder().addComponents(roleSelect);
+                return await interaction.reply({ content: '👇 اختر الرول المطلوب إرسال الرسالة لأصحابه:', components: [row], ephemeral: true });
+            }
+
+            if (customId === 'global_send_user_btn') {
+                const userSelect = new UserSelectMenuBuilder()
+                    .setCustomId('direct_user_select')
+                    .setPlaceholder('👤 اختر العضو المستهدف')
+                    .setMinValues(1)
+                    .setMaxValues(1);
+
+                const row = new ActionRowBuilder().addComponents(userSelect);
+                return await interaction.reply({ content: '👇 اختر العضو المطلوب إرسال الرسالة الشخصية له:', components: [row], ephemeral: true });
+            }
 
             if (customId.startsWith('mute_room_') || customId.startsWith('unmute_room_')) {
                 const parts = customId.split('_');
@@ -210,66 +245,159 @@ client.on('interactionCreate', async interaction => {
                 await Promise.all(promises);
                 return;
             }
+        }
 
-            // زر إرسال رسالة للروم معين (القديم)
-            if (customId === 'send_msg_to_vc') {
+        if (interaction.isRoleSelectMenu()) {
+            if (interaction.customId === 'direct_role_select') {
+                const selectedRoleId = interaction.values[0];
+
                 const modal = new ModalBuilder()
-                    .setCustomId('send_msg_modal')
-                    .setTitle('إرسال رسالة للروم الصوتي');
+                    .setCustomId(`modal_role_msg_${selectedRoleId}`)
+                    .setTitle('اكتب رسالة أصحاب الرول');
 
                 const messageInput = new TextInputBuilder()
-                    .setCustomId('vc_message_text')
-                    .setLabel('اكتب الرسالة التي تريد إرسالها')
+                    .setCustomId('role_message_text')
+                    .setLabel('محتوى الرسالة:')
                     .setStyle(TextInputStyle.Paragraph)
+                    .setPlaceholder('اكتب هنا رسالتك...')
                     .setRequired(true);
 
                 modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
-                await interaction.showModal(modal);
-                return;
+                return await interaction.showModal(modal);
             }
         }
 
-        // التعامل مع القوائم المنسدلة (Select Menus) القديمة
-        if (interaction.isStringSelectMenu()) {
-            if (interaction.customId === 'main_voice_select') {
-                const selectedValue = interaction.values[0];
-                const channelId = selectedValue.replace('select_vc_', '');
-                const channel = await guild.channels.fetch(channelId).catch(() => {});
+        if (interaction.isUserSelectMenu()) {
+            if (interaction.customId === 'direct_user_select') {
+                const selectedUserId = interaction.values[0];
 
-                if (!channel) {
-                    return await interaction.reply({ content: '❌ الروم غير موجود.', ephemeral: true });
+                const modal = new ModalBuilder()
+                    .setCustomId(`modal_user_msg_${selectedUserId}`)
+                    .setTitle('رسالة توجيه/تنبيه شخصية');
+
+                const messageInput = new TextInputBuilder()
+                    .setCustomId('user_message_text')
+                    .setLabel('محتوى الرسالة الشخصية:')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setPlaceholder('اكتب التنبيه هنا...')
+                    .setRequired(true);
+
+                modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
+                return await interaction.showModal(modal);
+            }
+        }
+
+        if (interaction.isStringSelectMenu()) {
+            if (interaction.customId === 'select_room_actions') {
+                const vcId = interaction.values[0].replace('manage_room_', '');
+                const actionSelect = new StringSelectMenuBuilder()
+                    .setCustomId(`room_sub_action_${vcId}`)
+                    .setPlaceholder('⚙️ اختر العملية المطلوبة لهذا الروم...')
+                    .addOptions([
+                        { label: '🔇 ميوت جميع أعضاء الروم', value: `mute_${vcId}` },
+                        { label: '🔊 فك الميوت عن أعضاء الروم', value: `unmute_${vcId}` }
+                    ]);
+
+                const row = new ActionRowBuilder().addComponents(actionSelect);
+                return await interaction.reply({ content: '👇 ماذا تريد أن تفعل بهذا الروم؟', components: [row], ephemeral: true });
+            }
+
+            if (interaction.customId.startsWith('room_sub_action_')) {
+                const selectedVal = interaction.values[0];
+                const [action, channelId] = selectedVal.split('_');
+
+                await interaction.deferUpdate();
+
+                const channel = await guild.channels.fetch(channelId).catch(() => {});
+                if (!channel || !channel.isVoiceBased()) return;
+
+                const shouldMute = (action === 'mute');
+                const promises = [];
+
+                channel.members.forEach(member => {
+                    if (member.voice) {
+                        if (shouldMute) {
+                            botMutedMembers.add(member.id);
+                            promises.push(member.voice.setMute(true).catch(() => {}));
+                        } else {
+                            if (botMutedMembers.has(member.id)) {
+                                botMutedMembers.delete(member.id);
+                                promises.push(member.voice.setMute(false).catch(() => {}));
+                            }
+                        }
+                    }
+                });
+
+                await Promise.all(promises);
+                return interaction.followUp({ content: `✅ تم تنفيذ العملية بنجاح على روم **${channel.name}**!`, ephemeral: true });
+            }
+            return;
+        }
+
+        if (interaction.isModalSubmit()) {
+            if (interaction.customId.startsWith('modal_role_msg_')) {
+                const roleId = interaction.customId.split('_')[3];
+                const messageText = interaction.fields.getTextInputValue('role_message_text');
+
+                await interaction.deferReply({ ephemeral: true });
+
+                await guild.members.fetch();
+                const targetRole = guild.roles.cache.get(roleId);
+                const membersWithRole = guild.members.cache.filter(m => m.roles.cache.has(roleId) && !m.user.bot);
+
+                if (!targetRole || membersWithRole.size === 0) {
+                    return interaction.editReply('❌ عذراً، لا يوجد أي عضو يملك هذا الرول حالياً.');
                 }
 
-                const embed = new EmbedBuilder()
-                    .setTitle(`🎙️ معلومات الروم: ${channel.name}`)
-                    .setDescription(`الأعضاء المتواجدون حالياً: ${channel.members.size}`)
-                    .setColor(0x00FF00);
+                const roleEmbed = new EmbedBuilder()
+                    .setTitle('📢 تنبيه إداري رسمي')
+                    .setDescription(messageText)
+                    .setColor(0x5865F2)
+                    .setTimestamp()
+                    .setFooter({ text: guild.name, iconURL: guild.iconURL() });
 
-                const row = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`mute_room_${channel.id}`)
-                        .setLabel('🔇 كتم أعضاء الروم')
-                        .setStyle(ButtonStyle.Danger),
-                    new ButtonBuilder()
-                        .setCustomId(`unmute_room_${channel.id}`)
-                        .setLabel('🔊 فك الكتم')
-                        .setStyle(ButtonStyle.Success)
-                );
+                let successCount = 0;
+                let failCount = 0;
 
-                await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
-                return;
+                for (const [memberId, member] of membersWithRole) {
+                    try {
+                        await member.send({ embeds: [roleEmbed] });
+                        successCount++;
+                    } catch (err) {
+                        failCount++;
+                    }
+                }
+
+                return interaction.editReply(`✅ تمت الإرسال بنجاح إلى **${successCount}** عضو يحملون رول **${targetRole.name}**! (فشل لـ ${failCount} بسبب إغلاق الخاص).`);
             }
-        }
 
-        // التعامل مع المودال (Modal Submit) القديم
-        if (interaction.isModalSubmit()) {
-            if (interaction.customId === 'send_msg_modal') {
-                const text = interaction.fields.getTextInputValue('vc_message_text');
-                await interaction.reply({ content: `✅ تم حفظ رسالتك بنجاح: "${text}"`, ephemeral: true });
-                return;
+            if (interaction.customId.startsWith('modal_user_msg_')) {
+                const userId = interaction.customId.split('_')[3];
+                const messageText = interaction.fields.getTextInputValue('user_message_text');
+
+                await interaction.deferReply({ ephemeral: true });
+
+                try {
+                    const targetMember = await guild.members.fetch(userId);
+                    if (!targetMember) {
+                        return interaction.editReply('❌ لم يتم العثور على هذا العضو في السيرفر.');
+                    }
+
+                    const userEmbed = new EmbedBuilder()
+                        .setTitle('✉️ توجيه أو تنبيه خاص لك')
+                        .setDescription(messageText)
+                        .setColor(0xFEE75C)
+                        .setTimestamp()
+                        .setFooter({ text: guild.name, iconURL: guild.iconURL() });
+
+                    await targetMember.send({ embeds: [userEmbed] });
+                    return interaction.editReply(`✅ تمت إرسال الرسالة الشخصية بنجاح إلى العضو **${targetMember.user.tag}**!`);
+                } catch (err) {
+                    return interaction.editReply('❌ فشل إرسال الرسالة الخاصة لهذا العضو (قد يكون مقفل الخاص).');
+                }
             }
+            return;
         }
-
     } catch (error) {
         console.error(error);
     }
