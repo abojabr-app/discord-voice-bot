@@ -108,10 +108,10 @@ client.once('ready', async () => {
             const managerEmbed = new EmbedBuilder()
                 .setTitle('🛡 لوحة إدارة القروب الخاصة')
                 .setDescription('مرحباً بك يا مدير القروب. يمكنك من هنا إرسال رسائل خاصة وتوجيهات للأعضاء أو الرولات بسرعة وسهولة:')
-                .setColor(0xF1C40F);
+                .setColor(0xFF0000);
 
             const managerRow = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('manager_send_role_btn').setLabel('📢 إرسال رسالة لرول معين').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('manager_send_role_btn').setLabel('📢 إرسال رسالة لرول معين').setStyle(ButtonStyle.Danger),
                 new ButtonBuilder().setCustomId('manager_send_user_btn').setLabel('✉ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
             );
 
@@ -420,12 +420,13 @@ client.on('interactionCreate', async interaction => {
                     return interaction.editReply('❌ عذراً، لا يوجد أي عضو يملك هذا الرول حالياً.');
                 }
 
-                const embedTitle = (type === 'manager') ? 'توجيه من مدير القروب 📨' : 'توجيه من إدارة السيرفر 📨';
+                const embedTitle = (type === 'manager') ? '🚨 توجيه من مدير القروب 📨' : 'توجيه من إدارة السيرفر 📨';
+                const embedColor = (type === 'manager') ? 0xFF0000 : 0x5865F2;
 
                 const roleEmbed = new EmbedBuilder()
                     .setTitle(embedTitle)
                     .setDescription(messageText)
-                    .setColor(type === 'manager' ? 0xF1C40F : 0x5865F2)
+                    .setColor(embedColor)
                     .setTimestamp()
                     .setFooter({ text: guild.name, iconURL: guild.iconURL() });
 
@@ -458,12 +459,13 @@ client.on('interactionCreate', async interaction => {
                         return interaction.editReply('❌ لم يتم العثور على هذا العضو في السيرفر.');
                     }
 
-                    const embedTitle = (type === 'manager') ? 'توجيه من مدير القروب 📨' : 'توجيه من إدارة السيرفر 📨';
+                    const embedTitle = (type === 'manager') ? '🚨 توجيه من مدير القروب 📨' : 'توجيه من إدارة السيرفر 📨';
+                    const embedColor = (type === 'manager') ? 0xFF0000 : 0xFEE75C;
 
                     const userEmbed = new EmbedBuilder()
                         .setTitle(embedTitle)
                         .setDescription(messageText)
-                        .setColor(type === 'manager' ? 0xF1C40F : 0xFEE75C)
+                        .setColor(embedColor)
                         .setTimestamp()
                         .setFooter({ text: guild.name, iconURL: guild.iconURL() });
 
