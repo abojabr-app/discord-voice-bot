@@ -31,6 +31,7 @@ const client = new Client({
 const GUILD_ID = '1200422663424847882';
 const LOG_CHANNEL_ID = '1539617469201915964';
 const INBOX_CHANNEL_ID = '1555355545504850103';
+const MANAGER_ROOM_ID = '1555573365748531251'; // روم مدير القروب الجديد
 
 // جدول الرومات الخاصة وأصحابها (روم صوتي -> آيدي الشخص)
 const SPECIAL_ROOMS = {
@@ -43,21 +44,20 @@ const SPECIAL_ROOMS = {
 const botMutedMembers = new Set();
 const voiceControlMessages = new Map();
 
-// إرسال اللوحة الرئيسية عند التشغيل (مع حذف القديم أولاً)
+// إرسال اللوحات عند التشغيل (روم السجلات + روم مدير القروب)
 client.once('ready', async () => {
     console.log(`Bot logged in as ${client.user.tag}!`);
 
     try {
         const guild = await client.guilds.fetch(GUILD_ID);
-        const channel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
 
-        if (channel && channel.isTextBased()) {
+        // 1. إعداد روم السجلات الرئيسي
+        const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
+        if (logChannel && logChannel.isTextBased()) {
             try {
-                const fetchedMessages = await channel.messages.fetch({ limit: 10 });
+                const fetchedMessages = await logChannel.messages.fetch({ limit: 10 });
                 for (const msg of fetchedMessages.values()) {
-                    if (msg.author.id === client.user.id) {
-                        await msg.delete().catch(() => {});
-                    }
+                    if (msg.author.id === client.user.id) await msg.delete().catch(() => {});
                 }
             } catch (e) {}
 
@@ -69,7 +69,6 @@ client.once('ready', async () => {
             const rows = [];
             await guild.channels.fetch();
             const allVoiceChannels = guild.channels.cache.filter(c => c.isVoiceBased());
-
             const roomOptions = [];
             allVoiceChannels.forEach(vc => {
                 roomOptions.push({
@@ -89,19 +88,37 @@ client.once('ready', async () => {
             }
 
             rows.push(new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId('global_send_role_btn')
-                    .setLabel('📢 إرسال رسالة لرول معين')
-                    .setStyle(ButtonStyle.Primary),
-                new ButtonBuilder()
-                    .setCustomId('global_send_user_btn')
-                    .setLabel('✉ إرسال رسالة لعضو معين')
-                    .setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId('global_send_role_btn').setLabel('📢 إرسال رسالة لرول معين').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('global_send_user_btn').setLabel('✉ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
             ));
 
-            await channel.send({ embeds: [embed], components: rows });
-            console.log('تم إرسال اللوحة الرئيسية بنجاح!');
+            await logChannel.send({ embeds: [embed], components: rows });
         }
+
+        // 2. إعداد روم مدير القروب الجديد
+        const managerChannel = await guild.channels.fetch(MANAGER_ROOM_ID).catch(() => {});
+        if (managerChannel && managerChannel.isTextBased()) {
+            try {
+                const fetchedManagerMsgs = await managerChannel.messages.fetch({ limit: 10 });
+                for (const msg of fetchedManagerMsgs.values()) {
+                    if (msg.author.id === client.user.id) await msg.delete().catch(() => {});
+                }
+            } catch (e) {}
+
+            const managerEmbed = new EmbedBuilder()
+                .setTitle('🛡️️ لوحة إدارة القروب الخاصة')
+                .setDescription('مرحباً بك يا مدير القروب. يمكنك من هنا إرسال رسائل خاصة وتوجيهات للأعضاء أو الرولات بسرعة وسهولة:')
+                .setColor(0xF1C40F);
+
+            const managerRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('global_send_role_btn').setLabel('📢 إرسال رسالة لرول معين').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('global_send_user_btn').setLabel('✉ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
+            );
+
+            await managerChannel.send({ embeds: [managerEmbed], components: [managerRow] });
+            console.log('تم إرسال لوحة مدير القروب بنجاح!');
+        }
+
     } catch (error) {
         console.error('خطأ عند بدء البوت:', error);
     }
@@ -135,7 +152,7 @@ client.on('messageCreate', async message => {
     }
 });
 
-// مراقبة دخول وخروج الأعضاء للرومات الصوتية
+// مراقبة دخول وخروج الأعضاء للرومات الصوتية وتنبيهات الخاص
 client.on('voiceStateUpdate', async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
     if (guild.id !== GUILD_ID) return;
@@ -148,13 +165,11 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         }
     }
 
-    // فحص الرومات الخاصة (إرسال تنبيه في الخاص لصاحب الروم إذا دخل شخص وهو ليس موجوداً)
+    // فحص الرومات الخاصة وتنبيه صاحب الروم في الخاص إذا لم يكن موجوداً
     if (newState.channel && SPECIAL_ROOMS[newState.channel.id]) {
         const ownerId = SPECIAL_ROOMS[newState.channel.id];
-        // التأكد أن العضو الداخل ليس هو صاحب الروم نفسه
         if (memberId !== ownerId) {
             const isOwnerInside = newState.channel.members.has(ownerId);
-            // إذا لم يكن صاحب الروم موجوداً في الغرفة
             if (!isOwnerInside) {
                 try {
                     const ownerMember = await guild.members.fetch(ownerId);
@@ -181,7 +196,6 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
     if (!logChannel || !logChannel.isTextBased()) return;
 
-    // حذف رسالة التحكم إذا أصبح الروم فاضياً
     if (oldState.channel && oldState.channel.members.size === 0) {
         if (voiceControlMessages.has(oldState.channel.id)) {
             try {
@@ -192,7 +206,6 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         }
     }
 
-    // إرسال رسالة التحكم للروم إذا دخل أعضاء
     if (newState.channel && newState.channel.members.size > 0) {
         const vc = newState.channel;
         
@@ -204,14 +217,8 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
                 .setTimestamp();
 
             const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId(`mute_room_${vc.id}`)
-                    .setLabel('🔇 كتم أعضاء الروم')
-                    .setStyle(ButtonStyle.Danger),
-                new ButtonBuilder()
-                    .setCustomId(`unmute_room_${vc.id}`)
-                    .setLabel('🔊 فك الكتم')
-                    .setStyle(ButtonStyle.Success)
+                new ButtonBuilder().setCustomId(`mute_room_${vc.id}`).setLabel('🔇 كتم أعضاء الروم').setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId(`unmute_room_${vc.id}`).setLabel('🔊 فك الكتم').setStyle(ButtonStyle.Success)
             );
 
             try {
