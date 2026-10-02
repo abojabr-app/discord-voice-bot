@@ -233,7 +233,8 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 // التعامل مع الأزرار والقوائم والمودال
 client.on('interactionCreate', async interaction => {
     try {
-        const guild = await interaction.guild.fetch();
+        const guild = interaction.guild;
+        if (!guild) return;
 
         if (interaction.isButton()) {
             const customId = interaction.customId;
@@ -250,7 +251,6 @@ client.on('interactionCreate', async interaction => {
             }
 
             if (customId === 'global_send_user_btn') {
-                await guild.members.fetch().catch(() => {});
                 const userSelect = new UserSelectMenuBuilder()
                     .setCustomId('direct_user_select_admin')
                     .setPlaceholder('👤 ابحث واختار العضو المستهدف بالاسم...')
@@ -273,7 +273,6 @@ client.on('interactionCreate', async interaction => {
             }
 
             if (customId === 'manager_send_user_btn') {
-                await guild.members.fetch().catch(() => {});
                 const userSelect = new UserSelectMenuBuilder()
                     .setCustomId('direct_user_select_manager')
                     .setPlaceholder('👤 ابحث واختار العضو المستهدف بالاسم...')
@@ -412,15 +411,12 @@ client.on('interactionCreate', async interaction => {
 
                 await interaction.deferReply({ ephemeral: true });
 
-                await guild.members.fetch();
-                const targetRole = guild.roles.cache.get(roleId);
-                const membersWithRole = guild.members.cache.filter(m => m.roles.cache.has(roleId) && !m.user.bot);
-
-                if (!targetRole || membersWithRole.size === 0) {
-                    return interaction.editReply('❌ عذراً، لا يوجد أي عضو يملك هذا الرول حالياً.');
+                const targetRole = await guild.roles.fetch(roleId).catch(() => null);
+                if (!targetRole) {
+                    return interaction.editReply('❌ عذراً، لم يتم العثور على هذا الرول.');
                 }
 
-                const embedTitle = (type === 'manager') ? '🚨 توجيه من مدير القروب 📨' : 'توجيه من إدارة السيرفر 📨';
+                const embedTitle = (type === 'manager') ? 'توجيه من مدير القروب 📨' : 'توجيه من إدارة السيرفر 📨';
                 const embedColor = (type === 'manager') ? 0xFF0000 : 0x5865F2;
 
                 const roleEmbed = new EmbedBuilder()
@@ -432,6 +428,9 @@ client.on('interactionCreate', async interaction => {
 
                 let successCount = 0;
                 let failCount = 0;
+
+                // جلب الأعضاء بشكل آمن للرول المحدد
+                const membersWithRole = targetRole.members.filter(m => !m.user.bot);
 
                 for (const [memberId, member] of membersWithRole) {
                     try {
@@ -454,12 +453,12 @@ client.on('interactionCreate', async interaction => {
                 await interaction.deferReply({ ephemeral: true });
 
                 try {
-                    const targetMember = await guild.members.fetch(userId);
+                    const targetMember = await guild.members.fetch(userId).catch(() => null);
                     if (!targetMember) {
                         return interaction.editReply('❌ لم يتم العثور على هذا العضو في السيرفر.');
                     }
 
-                    const embedTitle = (type === 'manager') ? '🚨 توجيه من مدير القروب 📨' : 'توجيه من إدارة السيرفر 📨';
+                    const embedTitle = (type === 'manager') ? 'توجيه من مدير القروب 📨' : 'توجيه من إدارة السيرفر 📨';
                     const embedColor = (type === 'manager') ? 0xFF0000 : 0xFEE75C;
 
                     const userEmbed = new EmbedBuilder()
@@ -494,7 +493,10 @@ client.on('interactionCreate', async interaction => {
             return;
         }
     } catch (error) {
-        console.error(error);
+        console.error('خطأ في التفاعل:', error);
+        if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
+            await interaction.reply({ content: ' حدث خطأ أثناء معالجة هذا الطلب.', ephemeral: true }).catch(() => {});
+        }
     }
 });
 
