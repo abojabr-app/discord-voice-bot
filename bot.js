@@ -35,7 +35,7 @@ const INBOX_CHANNEL_ID = '1555355545504850103';
 const botMutedMembers = new Set();
 const voiceControlMessages = new Map();
 
-// إرسال اللوحة الرئيسية عند التشغيل
+// إرسال اللوحة الرئيسية عند التشغيل (مع حذف القديم أولاً)
 client.once('ready', async () => {
     console.log(`Bot logged in as ${client.user.tag}!`);
 
@@ -44,6 +44,16 @@ client.once('ready', async () => {
         const channel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
 
         if (channel && channel.isTextBased()) {
+            // مسح الرسائل القديمة في القناة لتجنب التكرار
+            try {
+                const fetchedMessages = await channel.messages.fetch({ limit: 10 });
+                for (const msg of fetchedMessages.values()) {
+                    if (msg.author.id === client.user.id) {
+                        await msg.delete().catch(() => {});
+                    }
+                }
+            } catch (e) {}
+
             const embed = new EmbedBuilder()
                 .setTitle('🎙️ لوحة تحكم الرومات الصوتية')
                 .setDescription('استخدم القائمة أدناه لاختيار الروم وإرسال رسائل خاصة، أو تحكم بأبرز الرومات:')
@@ -90,7 +100,7 @@ client.once('ready', async () => {
     }
 });
 
-// تحويل رسائل الخاص
+// تحويل رسائل الخاص الواردة إلى روم الإنبوت
 client.on('messageCreate', async message => {
     if (message.guild || message.author.bot) return;
 
@@ -118,7 +128,7 @@ client.on('messageCreate', async message => {
     }
 });
 
-// مراقبة دخول وخروج الأعضاء للرومات
+// مراقبة دخول وخروج الأعضاء للرومات الصوتية
 client.on('voiceStateUpdate', async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
     if (guild.id !== GUILD_ID) return;
@@ -195,7 +205,6 @@ client.on('interactionCreate', async interaction => {
             }
 
             if (customId === 'global_send_user_btn') {
-                // جلب الأعضاء لضمان ظهورهم في القائمة
                 await guild.members.fetch().catch(() => {});
 
                 const userSelect = new UserSelectMenuBuilder()
@@ -205,7 +214,7 @@ client.on('interactionCreate', async interaction => {
                     .setMaxValues(1);
 
                 const row = new ActionRowBuilder().addComponents(userSelect);
-                return await interaction.reply({ content: '👇 اختر أو ابحث عن العضو المطلوب إرسال الرسالة الشخصية له (يمكنك الكتابة للبحث):', components: [row], ephemeral: true });
+                return await interaction.reply({ content: '👇 اختر أو ابحث عن العضو المطلوب إرسال الرسالة الشخصية له:', components: [row], ephemeral: true });
             }
 
             if (customId.startsWith('mute_room_') || customId.startsWith('unmute_room_')) {
@@ -383,8 +392,25 @@ client.on('interactionCreate', async interaction => {
                         .setTimestamp()
                         .setFooter({ text: guild.name, iconURL: guild.iconURL() });
 
+                    // إرسال الرسالة للعضو في الخاص
                     await targetMember.send({ embeds: [userEmbed] });
-                    return interaction.editReply(`✅ تمت إرسال الرسالة الشخصية بنجاح إلى العضو **${targetMember.user.tag}**!`);
+
+                    // إرسال نسخة من الرسالة إلى روم الـ Inbox عشان تتابع الردود
+                    const inboxChannel = await guild.channels.fetch(INBOX_CHANNEL_ID).catch(() => {});
+                    if (inboxChannel && inboxChannel.isTextBased()) {
+                        const copyEmbed = new EmbedBuilder()
+                            .setTitle('📤 رسالة تم إرسالها لعضو (سجل الإرسال)')
+                            .setDescription(messageText)
+                            .addFields(
+                                { name: '👤 المرسل إليه', value: `${targetMember} (${targetMember.user.tag})`, inline: true },
+                                { name: '🛡️ الإداري المرسل', value: `${interaction.user}`, inline: true }
+                            )
+                            .setColor(0x57F287)
+                            .setTimestamp();
+                        await inboxChannel.send({ embeds: [copyEmbed] });
+                    }
+
+                    return interaction.editReply(`✅ تمت إرسال الرسالة الشخصية بنجاح إلى العضو **${targetMember.user.tag}** وتم توثيقها في الروم المخصص!`);
                 } catch (err) {
                     return interaction.editReply('❌ فشل إرسال الرسالة الخاصة لهذا العضو (قد يكون مقفل الخاص).');
                 }
