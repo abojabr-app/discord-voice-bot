@@ -118,7 +118,7 @@ client.on('messageCreate', async message => {
     }
 });
 
-// مراقبة دخول وخروج الأعضاء للرومات (إرسال رسالة مستقلة للكتم عند الدخول، وحذفها إذا فاضي)
+// مراقبة دخول وخروج الأعضاء للرومات
 client.on('voiceStateUpdate', async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
     if (guild.id !== GUILD_ID) return;
@@ -134,7 +134,6 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
     if (!logChannel || !logChannel.isTextBased()) return;
 
-    // 1. إذا أصبح الروم القديم فاضياً، نحذف رسالة التحكم الخاصة به
     if (oldState.channel && oldState.channel.members.size === 0) {
         if (voiceControlMessages.has(oldState.channel.id)) {
             try {
@@ -145,7 +144,6 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         }
     }
 
-    // 2. إذا دخل شخص إلى روم وفيه أعضاء، نرسل رسالة جديدة مستقلة خاصة بخيارات الكتم لهذا الروم
     if (newState.channel && newState.channel.members.size > 0) {
         const vc = newState.channel;
         
@@ -177,7 +175,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// التعامل مع الأزرار، القوائم، والمودال بالكامل
+// التعامل مع الأزرار والقوائم والمودال
 client.on('interactionCreate', async interaction => {
     try {
         const guild = await interaction.guild.fetch();
@@ -197,14 +195,17 @@ client.on('interactionCreate', async interaction => {
             }
 
             if (customId === 'global_send_user_btn') {
+                // جلب الأعضاء لضمان ظهورهم في القائمة
+                await guild.members.fetch().catch(() => {});
+
                 const userSelect = new UserSelectMenuBuilder()
                     .setCustomId('direct_user_select')
-                    .setPlaceholder('👤 اختر العضو المستهدف')
+                    .setPlaceholder('👤 ابحث واختار العضو المستهدف بالاسم...')
                     .setMinValues(1)
                     .setMaxValues(1);
 
                 const row = new ActionRowBuilder().addComponents(userSelect);
-                return await interaction.reply({ content: '👇 اختر العضو المطلوب إرسال الرسالة الشخصية له:', components: [row], ephemeral: true });
+                return await interaction.reply({ content: '👇 اختر أو ابحث عن العضو المطلوب إرسال الرسالة الشخصية له (يمكنك الكتابة للبحث):', components: [row], ephemeral: true });
             }
 
             if (customId.startsWith('mute_room_') || customId.startsWith('unmute_room_')) {
