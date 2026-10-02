@@ -31,7 +31,7 @@ const client = new Client({
 const GUILD_ID = '1200422663424847882';
 const LOG_CHANNEL_ID = '1539617469201915964';
 const INBOX_CHANNEL_ID = '1555355545504850103';
-const MANAGER_ROOM_ID = '1555573365748531251'; // روم مدير القروب الجديد
+const MANAGER_ROOM_ID = '1555573365748531251'; // روم مدير القروب
 
 // جدول الرومات الخاصة وأصحابها (روم صوتي -> آيدي الشخص)
 const SPECIAL_ROOMS = {
@@ -73,8 +73,7 @@ client.once('ready', async () => {
             allVoiceChannels.forEach(vc => {
                 roomOptions.push({
                     label: vc.name.slice(0, 100),
-                    description: `خيارات إرسال وتحكم لـ: ${vc.name}`.slice(0, 100),
-                    value: `manage_room_${vc.id}`
+                    description: `خيارات إرسال وتحكم لـ: ${vc.name}`.slice(0, 100),                     value: `manage_room_${vc.id}`
                 });
             });
 
@@ -106,13 +105,13 @@ client.once('ready', async () => {
             } catch (e) {}
 
             const managerEmbed = new EmbedBuilder()
-                .setTitle('🛡️️ لوحة إدارة القروب الخاصة')
+                .setTitle('🛡 لوحة إدارة القروب الخاصة')
                 .setDescription('مرحباً بك يا مدير القروب. يمكنك من هنا إرسال رسائل خاصة وتوجيهات للأعضاء أو الرولات بسرعة وسهولة:')
                 .setColor(0xF1C40F);
 
             const managerRow = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('global_send_role_btn').setLabel('📢 إرسال رسالة لرول معين').setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId('global_send_user_btn').setLabel('✉ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId('manager_send_role_btn').setLabel('📢 إرسال رسالة لرول معين').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('manager_send_user_btn').setLabel('✉ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
             );
 
             await managerChannel.send({ embeds: [managerEmbed], components: [managerRow] });
@@ -165,7 +164,6 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         }
     }
 
-    // فحص الرومات الخاصة وتنبيه صاحب الروم في الخاص إذا لم يكن موجوداً
     if (newState.channel && SPECIAL_ROOMS[newState.channel.id]) {
         const ownerId = SPECIAL_ROOMS[newState.channel.id];
         if (memberId !== ownerId) {
@@ -239,28 +237,52 @@ client.on('interactionCreate', async interaction => {
         if (interaction.isButton()) {
             const customId = interaction.customId;
 
+            // أزرار لوحة السجلات العامة (إداري)
             if (customId === 'global_send_role_btn') {
                 const roleSelect = new RoleSelectMenuBuilder()
-                    .setCustomId('direct_role_select')
+                    .setCustomId('direct_role_select_admin')
                     .setPlaceholder('🎯 اختر الرول المستهدف للإرسال')
                     .setMinValues(1)
                     .setMaxValues(1);
 
                 const row = new ActionRowBuilder().addComponents(roleSelect);
-                return await interaction.reply({ content: '👇 اختر الرول المطلوب إرسال الرسالة لأصحابه:', components: [row], ephemeral: true });
+                return await interaction.reply({ content: '👇 اختر الرول المطلوب إرسال الرسالة لأصحابه بصفتك (إداري):', components: [row], ephemeral: true });
             }
 
             if (customId === 'global_send_user_btn') {
                 await guild.members.fetch().catch(() => {});
-
                 const userSelect = new UserSelectMenuBuilder()
-                    .setCustomId('direct_user_select')
+                    .setCustomId('direct_user_select_admin')
                     .setPlaceholder('👤 ابحث واختار العضو المستهدف بالاسم...')
                     .setMinValues(1)
                     .setMaxValues(1);
 
                 const row = new ActionRowBuilder().addComponents(userSelect);
-                return await interaction.reply({ content: '👇 اختر أو ابحث عن العضو المطلوب إرسال الرسالة الشخصية له:', components: [row], ephemeral: true });
+                return await interaction.reply({ content: '👇 اختر أو ابحث عن العضو المطلوب إرسال الرسالة الشخصية له بصفتك (إداري):', components: [row], ephemeral: true });
+            }
+
+            // أزرار لوحة مدير القروب (المدير)
+            if (customId === 'manager_send_role_btn') {
+                const roleSelect = new RoleSelectMenuBuilder()
+                    .setCustomId('direct_role_select_manager')
+                    .setPlaceholder('🎯 اختر الرول المستهدف للإرسال')
+                    .setMinValues(1)
+                    .setMaxValues(1);
+
+                const row = new ActionRowBuilder().addComponents(roleSelect);
+                return await interaction.reply({ content: '👇 اختر الرول المطلوب إرسال الرسالة لأصحابه بصفتك (المدير):', components: [row], ephemeral: true });
+            }
+
+            if (customId === 'manager_send_user_btn') {
+                await guild.members.fetch().catch(() => {});
+                const userSelect = new UserSelectMenuBuilder()
+                    .setCustomId('direct_user_select_manager')
+                    .setPlaceholder('👤 ابحث واختار العضو المستهدف بالاسم...')
+                    .setMinValues(1)
+                    .setMaxValues(1);
+
+                const row = new ActionRowBuilder().addComponents(userSelect);
+                return await interaction.reply({ content: '👇 اختر أو ابحث عن العضو المطلوب إرسال الرسالة الشخصية له بصفتك (المدير):', components: [row], ephemeral: true });
             }
 
             if (customId.startsWith('mute_room_') || customId.startsWith('unmute_room_')) {
@@ -296,43 +318,43 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.isRoleSelectMenu()) {
-            if (interaction.customId === 'direct_role_select') {
-                const selectedRoleId = interaction.values[0];
+            const isManager = interaction.customId.includes('_manager');
+            const selectedRoleId = interaction.values[0];
+            const suffix = isManager ? 'manager' : 'admin';
 
-                const modal = new ModalBuilder()
-                    .setCustomId(`modal_role_msg_${selectedRoleId}`)
-                    .setTitle('اكتب رسالة أصحاب الرول');
+            const modal = new ModalBuilder()
+                .setCustomId(`modal_role_msg_${suffix}_${selectedRoleId}`)
+                .setTitle('اكتب رسالة أصحاب الرول');
 
-                const messageInput = new TextInputBuilder()
-                    .setCustomId('role_message_text')
-                    .setLabel('محتوى الرسالة:')
-                    .setStyle(TextInputStyle.Paragraph)
-                    .setPlaceholder('اكتب هنا رسالتك...')
-                    .setRequired(true);
+            const messageInput = new TextInputBuilder()
+                .setCustomId('role_message_text')
+                .setLabel('محتوى الرسالة:')
+                .setStyle(TextInputStyle.Paragraph)
+                .setPlaceholder('اكتب هنا رسالتك...')
+                .setRequired(true);
 
-                modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
-                return await interaction.showModal(modal);
-            }
+            modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
+            return await interaction.showModal(modal);
         }
 
         if (interaction.isUserSelectMenu()) {
-            if (interaction.customId === 'direct_user_select') {
-                const selectedUserId = interaction.values[0];
+            const isManager = interaction.customId.includes('_manager');
+            const selectedUserId = interaction.values[0];
+            const suffix = isManager ? 'manager' : 'admin';
 
-                const modal = new ModalBuilder()
-                    .setCustomId(`modal_user_msg_${selectedUserId}`)
-                    .setTitle('رسالة توجيه/تنبيه شخصية');
+            const modal = new ModalBuilder()
+                .setCustomId(`modal_user_msg_${suffix}_${selectedUserId}`)
+                .setTitle('رسالة توجيه/تنبيه شخصية');
 
-                const messageInput = new TextInputBuilder()
-                    .setCustomId('user_message_text')
-                    .setLabel('محتوى الرسالة الشخصية:')
-                    .setStyle(TextInputStyle.Paragraph)
-                    .setPlaceholder('اكتب التنبيه هنا...')
-                    .setRequired(true);
+            const messageInput = new TextInputBuilder()
+                .setCustomId('user_message_text')
+                .setLabel('محتوى الرسالة الشخصية:')
+                .setStyle(TextInputStyle.Paragraph)
+                .setPlaceholder('اكتب التنبيه هنا...')
+                .setRequired(true);
 
-                modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
-                return await interaction.showModal(modal);
-            }
+            modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
+            return await interaction.showModal(modal);
         }
 
         if (interaction.isStringSelectMenu()) {
@@ -384,7 +406,9 @@ client.on('interactionCreate', async interaction => {
 
         if (interaction.isModalSubmit()) {
             if (interaction.customId.startsWith('modal_role_msg_')) {
-                const roleId = interaction.customId.split('_')[3];
+                const parts = interaction.customId.split('_');
+                const type = parts[3]; // admin أو manager
+                const roleId = parts[4];
                 const messageText = interaction.fields.getTextInputValue('role_message_text');
 
                 await interaction.deferReply({ ephemeral: true });
@@ -397,10 +421,13 @@ client.on('interactionCreate', async interaction => {
                     return interaction.editReply('❌ عذراً، لا يوجد أي عضو يملك هذا الرول حالياً.');
                 }
 
+                const senderTitle = (type === 'manager') ? 'المرسل: المدير' : 'المرسل: إداري';
+
                 const roleEmbed = new EmbedBuilder()
                     .setTitle('📢 تنبيه إداري رسمي')
                     .setDescription(messageText)
-                    .setColor(0x5865F2)
+                    .addFields({ name: '🛡️ الصفة', value: senderTitle, inline: true })
+                    .setColor(type === 'manager' ? 0xF1C40F : 0x5865F2)
                     .setTimestamp()
                     .setFooter({ text: guild.name, iconURL: guild.iconURL() });
 
@@ -416,11 +443,13 @@ client.on('interactionCreate', async interaction => {
                     }
                 }
 
-                return interaction.editReply(`✅ تمت الإرسال بنجاح إلى **${successCount}** عضو يحملون رول **${targetRole.name}**! (فشل لـ ${failCount} بسبب إغلاق الخاص).`);
+                return interaction.editReply(`✅ تمت الإرسال بنجاح إلى **${successCount}** عضو يحملون رول **${targetRole.name}** بصفتك (${type === 'manager' ? 'المدير' : 'إداري'})!`);
             }
 
             if (interaction.customId.startsWith('modal_user_msg_')) {
-                const userId = interaction.customId.split('_')[3];
+                const parts = interaction.customId.split('_');
+                const type = parts[3]; // admin أو manager
+                const userId = parts[4];
                 const messageText = interaction.fields.getTextInputValue('user_message_text');
 
                 await interaction.deferReply({ ephemeral: true });
@@ -431,10 +460,13 @@ client.on('interactionCreate', async interaction => {
                         return interaction.editReply('❌ لم يتم العثور على هذا العضو في السيرفر.');
                     }
 
+                    const senderTitle = (type === 'manager') ? 'المرسل: المدير' : 'المرسل: إداري';
+
                     const userEmbed = new EmbedBuilder()
                         .setTitle('✉️ توجيه أو تنبيه خاص لك')
                         .setDescription(messageText)
-                        .setColor(0xFEE75C)
+                        .addFields({ name: '🛡️ الصفة', value: senderTitle, inline: true })
+                        .setColor(type === 'manager' ? 0xF1C40F : 0xFEE75C)
                         .setTimestamp()
                         .setFooter({ text: guild.name, iconURL: guild.iconURL() });
 
@@ -447,14 +479,15 @@ client.on('interactionCreate', async interaction => {
                             .setDescription(messageText)
                             .addFields(
                                 { name: '👤 المرسل إليه', value: `${targetMember} (${targetMember.user.tag})`, inline: true },
-                                { name: '🛡️ الإداري المرسل', value: `${interaction.user}`, inline: true }
+                                { name: '🛡️ الإداري المرسل', value: `${interaction.user}`, inline: true },
+                                { name: '🏷️ صفة المرسل', value: senderTitle, inline: true }
                             )
                             .setColor(0x57F287)
                             .setTimestamp();
                         await inboxChannel.send({ embeds: [copyEmbed] });
                     }
 
-                    return interaction.editReply(`✅ تمت إرسال الرسالة الشخصية بنجاح إلى العضو **${targetMember.user.tag}** وتم توثيقها في الروم المخصص!`);
+                    return interaction.editReply(`✅ تمت إرسال الرسالة الشخصية بنجاح إلى العضو **${targetMember.user.tag}** بصفتك (${type === 'manager' ? 'المدير' : 'إداري'}) وتم توثيقها!`);
                 } catch (err) {
                     return interaction.editReply('❌ فشل إرسال الرسالة الخاصة لهذا العضو (قد يكون مقفل الخاص).');
                 }
