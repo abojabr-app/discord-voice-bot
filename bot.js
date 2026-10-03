@@ -50,8 +50,7 @@ const SPECIAL_ROOMS = {
 const botMutedMembers = new Set();
 const voiceControlMessages = new Map();
 
-// تخزين معلومات الشات الفعّال لكل عضو (أو لكل ثريد)
-// المفتاح: Thread ID، القيمة: { userId, adminRole }
+// تخزين معلومات الشات الفعّال لكل ثريد
 const activeThreads = new Map();
 // لتخزين سجل المحادثات لكل عضو
 const userChatHistories = new Map();
@@ -162,9 +161,8 @@ client.once('ready', async () => {
     }
 });
 
-// التعامل مع رسائل الخاص أو الردود داخل رومات الـ Threads
+// التعامل مع الرسائل
 client.on('messageCreate', async message => {
-    // أمر تنظيف الإنبت
     if (message.content === '!clear_inbox' && message.channel.id === INBOX_CHANNEL_ID) {
         if (message.member && message.member.permissions.has('Administrator')) {
             try {
@@ -176,9 +174,9 @@ client.on('messageCreate', async message => {
     }
 
     const guild = message.guild;
-    if (!guild) return; // رسالة خاصة وليست من السيرفر
+    if (!guild) return; // رسالة خاصة
 
-    // أ) إذا كانت الرسالة مرسلة داخل ثريد (غرفة دردشة العضو)
+    // أ) الرد داخل ثريد الشات الخاص بالعضو
     if (message.channel.isThread() && message.channel.parentId === INBOX_CHANNEL_ID) {
         if (message.author.bot) return;
 
@@ -186,11 +184,11 @@ client.on('messageCreate', async message => {
         const session = activeThreads.get(threadId);
 
         if (!session) {
-            return message.reply('⚠️ يرجى أولاً اختيار صفة الرد الإدارية من الزر الموجود في أول المحادثة قبل الكتابة!').catch(() => {});
+            return message.reply('⚠️ يرجى أولاً اختيار صفة الرد الإدارية من القائمة في أول المحادثة قبل الكتابة!').catch(() => {});
         }
 
         const userId = session.userId;
-        const roleType = session.adminRole; // manager, deputy, admin
+        const roleType = session.adminRole;
         const replyText = message.content;
 
         try {
@@ -217,15 +215,12 @@ client.on('messageCreate', async message => {
                 .setTimestamp()
                 .setFooter({ text: guild.name, iconURL: guild.iconURL() });
 
-            // إرسال الرسالة بالخاص للعضو
             await targetMember.send({ embeds: [replyEmbed] });
 
-            // حفظ الرد في السجل المؤقت
             if (userChatHistories.has(userId)) {
                 userChatHistories.get(userId).push({ sender: 'admin', content: `[${embedTitle}]:${replyText}`, time: new Date().toLocaleTimeString() });
             }
 
-            // تأكيد بصري خفيف (تلوين الرسالة أو التفاعل عليها)
             await message.react('✅').catch(() => {});
         } catch (err) {
             await message.react('❌').catch(() => {});
@@ -234,7 +229,7 @@ client.on('messageCreate', async message => {
         return;
     }
 
-    // ب) إذا كانت الرسالة واردة من الخاص (DM) للبوت
+    // ب) رسالة جديدة واردة من خاص العضو (DM)
     if (message.author.bot) return;
 
     try {
@@ -249,7 +244,6 @@ client.on('messageCreate', async message => {
         const inboxChannel = await guild.channels.fetch(INBOX_CHANNEL_ID).catch(() => {});
         if (!inboxChannel || !inboxChannel.isTextBased()) return;
 
-        // 1. إرسال تنبيه في روم الإنبوت الرئيسي
         const dmEmbed = new EmbedBuilder()
             .setTitle('📥 رسالة جديدة من عضو بالخاص')
             .setThumbnail(message.author.displayAvatarURL({ dynamic: true, size: 1024 }))
@@ -270,14 +264,13 @@ client.on('messageCreate', async message => {
 
         const sentAlertMsg = await inboxChannel.send({ embeds: [dmEmbed], components: [row] });
 
-        // 2. إنشاء روم فرعي (Thread) تلقائي خاص بهذا العضو فور وصول رسالته
+        // فتح ثريد تلقائي للشات
         const thread = await sentAlertMsg.startThread({
             name: `شات-${message.author.username}`.slice(0, 100),
-            autoArchiveDuration: 1440, // يؤرشف بعد 24 ساعة من عدم النشاط
+            autoArchiveDuration: 1440,
             reason: `محادثة خاصة مع العضو ${message.author.tag}`
         });
 
-        // تجهيز سجل الرسائل السابقة لعرضه داخل الروم الفرعي
         let chatSummary = history.map(h => `**[${h.time}] ${h.sender === 'user' ? '👤 العضو' : '🤖 الإدارة'}:** ${h.content}`).join('\n');
         if (chatSummary.length > 3900) chatSummary = chatSummary.slice(-3900);
 
@@ -375,7 +368,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// التعامل مع التفاعلات والأزرار
+// التعامل مع التفاعلات
 client.on('interactionCreate', async interaction => {
     try {
         const guild = interaction.guild;
@@ -384,10 +377,8 @@ client.on('interactionCreate', async interaction => {
         if (interaction.isButton()) {
             const customId = interaction.customId;
 
-            // زر فتح الشات اليدوي (لو افترضنا أن الثريد لم يفتح تلقائياً)
             if (customId.startsWith('open_chat_thread_')) {
-                const userId = customId.replace('open_chat_thread_', '');
-                return await interaction.reply({ content: `✅ تفقد الرومات الفرعية (Threads) المفتوحة في الأعلى، ستجد غرفة خاصة بهذا العضو!`, ephemeral: true });
+                return await interaction.reply({ content: `✅ تفقد الرومات الفرعية (Threads) المفتوحة في أعلى روم الإنبوت!`, ephemeral: true });
             }
 
             if (customId === 'change_bot_avatar_btn') {
@@ -596,7 +587,7 @@ client.on('interactionCreate', async interaction => {
             // اختيار الصفة داخل ثريد الشات
             if (interaction.customId.startsWith('set_thread_role_')) {
                 const userId = interaction.customId.replace('set_thread_role_', '');
-                const roleType = interaction.values[0]; // manager, deputy, admin
+                const roleType = interaction.values[0];
                 const threadId = interaction.channelId;
 
                 activeThreads.set(threadId, { userId, adminRole: roleType });
