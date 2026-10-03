@@ -33,34 +33,33 @@ const LOG_CHANNEL_ID = '1539617469201915964';
 const INBOX_CHANNEL_ID = '1555355545504850103';
 const MANAGER_ROOM_ID = '1555573365748531251'; // روم مدير القروب
 
+// روم نائب المدير الجديد وشخصيته
+const DEPUTY_ROOM_ID = '1555941998819811439';
+const DEPUTY_USER_ID = '1200448943365034036';
+const DEPUTY_VOICE_ID = '1555941900773498951';
+
 // جدول الرومات الخاصة وأصحابها
 const SPECIAL_ROOMS = {
     '1431905620230930473': '1218664301729026254',
     '1329454808553357312': '890351885339480115',
     '1511922936297160834': '713105913334071358',
-    '1527063216860172429': '1173308991619743865'
+    '1527063216860172429': '1173308991619743865',
+    [DEPUTY_VOICE_ID]: DEPUTY_USER_ID // روم نائب المدير الصوتي
 };
 
 const botMutedMembers = new Set();
 const voiceControlMessages = new Map();
 
-// إرسال اللوحات عند التشغيل وتنظيف رسايل التيست السابقة تلقائياً
+// إرسال اللوحات عند التشغيل (بدون مسح عشوائي للرومات)
 client.once('ready', async () => {
     console.log(`Bot logged in as ${client.user.tag}!`);
 
     try {
         const guild = await client.guilds.fetch(GUILD_ID);
 
-        // 1. تنظيف وإعداد روم السجلات الرئيسي (مع زر تغيير صورة البوت هنا فقط)
+        // 1. روم السجلات الرئيسي (مع زر تغيير صورة البوت)
         const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
         if (logChannel && logChannel.isTextBased()) {
-            try {
-                const fetchedMessages = await logChannel.messages.fetch({ limit: 50 });
-                for (const msg of fetchedMessages.values()) {
-                    await msg.delete().catch(() => {});
-                }
-            } catch (e) {}
-
             const embed = new EmbedBuilder()
                 .setTitle('🎙️ لوحة تحكم الرومات الصوتية')
                 .setDescription('استخدم القائمة أدناه لاختيار الروم وإرسال رسائل خاصة، أو تحكم بأبرز الرومات:')
@@ -73,8 +72,7 @@ client.once('ready', async () => {
             allVoiceChannels.forEach(vc => {
                 roomOptions.push({
                     label: vc.name.slice(0, 100),
-                    description: `خيارات إرسال وتحكم لـ: ${vc.name}`.slice(0, 100),
-                    value: `manage_room_${vc.id}`
+                    description: `خيارات إرسال وتحكم لـ: ${vc.name}`.slice(0, 100),                     value: `manage_room_${vc.id}`
                 });
             });
 
@@ -92,7 +90,6 @@ client.once('ready', async () => {
                 new ButtonBuilder().setCustomId('global_send_user_btn').setLabel('✉ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
             ));
 
-            // زر تغيير صورة البوت هنا فقط في اللوحة الرئيسية
             rows.push(new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('change_bot_avatar_btn').setLabel('تغيير صورة البوت').setStyle(ButtonStyle.Success)
             ));
@@ -100,16 +97,9 @@ client.once('ready', async () => {
             await logChannel.send({ embeds: [embed], components: rows });
         }
 
-        // 2. تنظيف وإعداد روم مدير القروب (بدون زر تغيير الصورة)
+        // 2. روم مدير القروب
         const managerChannel = await guild.channels.fetch(MANAGER_ROOM_ID).catch(() => {});
         if (managerChannel && managerChannel.isTextBased()) {
-            try {
-                const fetchedManagerMsgs = await managerChannel.messages.fetch({ limit: 50 });
-                for (const msg of fetchedManagerMsgs.values()) {
-                    await msg.delete().catch(() => {});
-                }
-            } catch (e) {}
-
             const managerEmbed = new EmbedBuilder()
                 .setTitle('🛡 لوحة إدارة القروب الخاصة')
                 .setDescription('مرحباً بك يا مدير القروب. يمكنك من هنا إرسال رسائل خاصة وتوجيهات للأعضاء أو الرولات بسرعة وسهولة:')
@@ -123,22 +113,20 @@ client.once('ready', async () => {
             await managerChannel.send({ embeds: [managerEmbed], components: [managerRow] });
         }
 
-        // 3. تنظيف روم الإنبوكس المطلوب بالكامل للإطلاق الرسمي
-        const inboxChannel = await guild.channels.fetch(INBOX_CHANNEL_ID).catch(() => {});
-        if (inboxChannel && inboxChannel.isTextBased()) {
-            try {
-                let fetched;
-                do {
-                    fetched = await inboxChannel.messages.fetch({ limit: 100 });
-                    if (fetched.size > 0) {
-                        await inboxChannel.bulkDelete(fetched, true).catch(async () => {
-                            for (const msg of fetched.values()) {
-                                await msg.delete().catch(() => {});
-                            }
-                        });
-                    }
-                } while (fetched.size >= 100);
-            } catch (e) {}
+        // 3. روم نائب المدير الجديد
+        const deputyChannel = await guild.channels.fetch(DEPUTY_ROOM_ID).catch(() => {});
+        if (deputyChannel && deputyChannel.isTextBased()) {
+            const deputyEmbed = new EmbedBuilder()
+                .setTitle('🛡️ لوحة إدارة نائب المدير')
+                .setDescription('مرحباً بك يا نائب المدير. يمكنك من هنا إرسال رسائل وتوجيهات رسمية للأعضاء أو الرولات:')
+                .setColor(0x3498DB);
+
+            const deputyRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('deputy_send_role_btn').setLabel('📢 إرسال رسالة لرول معين').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('deputy_send_user_btn').setLabel('✉ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
+            );
+
+            await deputyChannel.send({ embeds: [deputyEmbed], components: [deputyRow] });
         }
 
     } catch (error) {
@@ -263,7 +251,6 @@ client.on('interactionCreate', async interaction => {
         if (interaction.isButton()) {
             const customId = interaction.customId;
 
-            // زر تغيير صورة البوت -> يفتح نافذة توضح المقاسات المطلوبة وتطلب رابط الصورة
             if (customId === 'change_bot_avatar_btn') {
                 const modal = new ModalBuilder()
                     .setCustomId('modal_change_avatar')
@@ -273,14 +260,14 @@ client.on('interactionCreate', async interaction => {
                     .setCustomId('avatar_info_note')
                     .setLabel('القياسات الموصى بها: 512×512 بيكسل (مربع)')
                     .setStyle(TextInputStyle.Short)
-                    .setValue('ارفع صورتك بأي روم وخذ "Copy Link" للرابط المباشر وضعه بالأسفل 👇')
+                    .setValue('ارفع صورتك بأي روم وخذ Copy Link للرابط المباشر وضعه بالأسفل 👇')
                     .setRequired(false);
 
                 const urlInput = new TextInputBuilder()
                     .setCustomId('avatar_url')
                     .setLabel('رابط الصورة المباشر (Image URL):')
                     .setStyle(TextInputStyle.Short)
-                    .setPlaceholder('ألصق رابط الصورة هنا (ينتهي بـ png أو jpg)...')
+                    .setPlaceholder('ألصق رابط الصورة هنا...')
                     .setRequired(true);
 
                 modal.addComponents(
@@ -290,10 +277,11 @@ client.on('interactionCreate', async interaction => {
                 return await interaction.showModal(modal);
             }
 
-            // إرسال رسالة لرول
-            if (customId === 'global_send_role_btn' || customId === 'manager_send_role_btn') {
-                const isManager = customId.includes('manager');
-                const suffix = isManager ? 'manager' : 'admin';
+            // إرسال رسالة لرول (للأدمن، مدير القروب، أو نائب المدير)
+            if (customId === 'global_send_role_btn' || customId === 'manager_send_role_btn' || customId === 'deputy_send_role_btn') {
+                let suffix = 'admin';
+                if (customId.includes('manager')) suffix = 'manager';
+                if (customId.includes('deputy')) suffix = 'deputy';
 
                 const roleSelect = new RoleSelectMenuBuilder()
                     .setCustomId(`direct_role_select_${suffix}`)
@@ -316,10 +304,11 @@ client.on('interactionCreate', async interaction => {
                 });
             }
 
-            // إرسال رسالة لعضو
-            if (customId === 'global_send_user_btn' || customId === 'manager_send_user_btn') {
-                const isManager = customId.includes('manager');
-                const suffix = isManager ? 'manager' : 'admin';
+            // إرسال رسالة لعضو (للأدمن، مدير القروب، أو نائب المدير)
+            if (customId === 'global_send_user_btn' || customId === 'manager_send_user_btn' || customId === 'deputy_send_user_btn') {
+                let suffix = 'admin';
+                if (customId.includes('manager')) suffix = 'manager';
+                if (customId.includes('deputy')) suffix = 'deputy';
 
                 const userSelect = new UserSelectMenuBuilder()
                     .setCustomId(`direct_user_select_${suffix}`)
@@ -342,7 +331,6 @@ client.on('interactionCreate', async interaction => {
                 });
             }
 
-            // فتح نافذة إدخال الآيدي اليدوي للرول
             if (customId.startsWith('manual_role_btn_')) {
                 const suffix = customId.replace('manual_role_btn_', '');
                 const modal = new ModalBuilder()
@@ -367,7 +355,6 @@ client.on('interactionCreate', async interaction => {
                 return await interaction.showModal(modal);
             }
 
-            // فتح نافذة إدخال الآيدي اليدوي للعضو
             if (customId.startsWith('manual_user_btn_')) {
                 const suffix = customId.replace('manual_user_btn_', '');
                 const modal = new ModalBuilder()
@@ -425,9 +412,11 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.isRoleSelectMenu()) {
-            const isManager = interaction.customId.includes('_manager');
+            let suffix = 'admin';
+            if (interaction.customId.includes('_manager')) suffix = 'manager';
+            if (interaction.customId.includes('_deputy')) suffix = 'deputy';
+
             const selectedRoleId = interaction.values[0];
-            const suffix = isManager ? 'manager' : 'admin';
 
             const modal = new ModalBuilder()
                 .setCustomId(`modal_role_msg_${suffix}_${selectedRoleId}`)
@@ -445,9 +434,11 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.isUserSelectMenu()) {
-            const isManager = interaction.customId.includes('_manager');
+            let suffix = 'admin';
+            if (interaction.customId.includes('_manager')) suffix = 'manager';
+            if (interaction.customId.includes('_deputy')) suffix = 'deputy';
+
             const selectedUserId = interaction.values[0];
-            const suffix = isManager ? 'manager' : 'admin';
 
             const modal = new ModalBuilder()
                 .setCustomId(`modal_user_msg_${suffix}_${selectedUserId}`)
@@ -511,11 +502,10 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
-        // معالجة البيانات المرسلة من النوافذ
+        // معالجة النوافذ (Modal Submit)
         if (interaction.isModalSubmit()) {
             const customId = interaction.customId;
 
-            // تنفيذ تغيير صورة البوت
             if (customId === 'modal_change_avatar') {
                 const avatarUrl = interaction.fields.getTextInputValue('avatar_url').trim();
                 await interaction.deferReply({ ephemeral: true });
@@ -524,7 +514,7 @@ client.on('interactionCreate', async interaction => {
                     await client.user.setAvatar(avatarUrl);
                     return interaction.editReply('✅ تم تغيير صورة البوت الشخصية بنجاح!');
                 } catch (err) {
-                    return interaction.editReply('❌ فشل تغيير الصورة. تأكد من أن الرابط مباشر وصحيح (ينتهي بصيغة صورة مثل png أو jpg) أو أنك تتجنب حظر ديسكورد لكثرة المحاولات.');
+                    return interaction.editReply('❌ فشل تغيير الصورة. تأكد من صحة الرابط المباشر وألا تتجاوز الحد المسموح من ديسكورد.');
                 }
             }
 
@@ -548,11 +538,19 @@ client.on('interactionCreate', async interaction => {
 
                 const targetRole = await guild.roles.fetch(roleId).catch(() => null);
                 if (!targetRole) {
-                    return interaction.editReply('❌ عذراً، لم يتم العثور على رول بهذا الآيدي. تأكد من صحة الآيدي.');
+                    return interaction.editReply('❌ عذراً، لم يتم العثور على رول بهذا الآيدي.');
                 }
 
-                const embedTitle = (type === 'manager') ? 'توجيه من مدير القروب 📨' : 'توجيه من إدارة السيرفر 📨';
-                const embedColor = (type === 'manager') ? 0xFF0000 : 0x5865F2;
+                let embedTitle = 'توجيه من إدارة السيرفر 📨';
+                let embedColor = 0x5865F2;
+
+                if (type === 'manager') {
+                    embedTitle = 'توجيه من مدير القروب 📨';
+                    embedColor = 0xFF0000;
+                } else if (type === 'deputy') {
+                    embedTitle = 'توجيه من نائب المدير 📨';
+                    embedColor = 0x3498DB;
+                }
 
                 const roleEmbed = new EmbedBuilder()
                     .setTitle(embedTitle)
@@ -586,7 +584,7 @@ client.on('interactionCreate', async interaction => {
                 } else {
                     const parts = customId.split('_');
                     type = parts[3];
-                    userId = interaction.fields.getTextInputValue('target_id').getTextInputValue('target_id').trim() || interaction.fields.getTextInputValue('target_id').trim();
+                    userId = interaction.fields.getTextInputValue('target_id').trim();
                     messageText = interaction.fields.getTextInputValue('target_msg');
                 }
 
@@ -598,8 +596,16 @@ client.on('interactionCreate', async interaction => {
                         return interaction.editReply('❌ عذراً، لم يتم العثور على هذا العضو في السيرفر بهذا الآيدي.');
                     }
 
-                    const embedTitle = (type === 'manager') ? 'توجيه من مدير القروب 📨' : 'توجيه من إدارة السيرفر 📨';
-                    const embedColor = (type === 'manager') ? 0xFF0000 : 0xFEE75C;
+                    let embedTitle = 'توجيه من إدارة السيرفر 📨';
+                    let embedColor = 0xFEE75C;
+
+                    if (type === 'manager') {
+                        embedTitle = 'توجيه من مدير القروب 📨';
+                        embedColor = 0xFF0000;
+                    } else if (type === 'deputy') {
+                        embedTitle = 'توجيه من نائب المدير 📨';
+                        embedColor = 0x3498DB;
+                    }
 
                     const userEmbed = new EmbedBuilder()
                         .setTitle(embedTitle)
@@ -611,13 +617,13 @@ client.on('interactionCreate', async interaction => {
                     await targetMember.send({ embeds: [userEmbed] });
 
                     const inboxChannel = await guild.channels.fetch(INBOX_CHANNEL_ID).catch(() => {});
-                    if (inboxChannel && inboxChannel.isTestBased && inboxChannel.isTextBased()) {
+                    if (inboxChannel && inboxChannel.isTextBased()) {
                         const copyEmbed = new EmbedBuilder()
                             .setTitle('📤 رسالة تم إرسالها لعضو (سجل الإرسال)')
                             .setDescription(messageText)
                             .addFields(
                                 { name: '👤 المرسل إليه', value: `${targetMember} (${targetMember.user.tag})`, inline: true },
-                                { name: '🛡️ الإداري المرسل', value: `${interaction.user}`, inline: true },
+                                { name: '🛡️ المرسل', value: `${interaction.user}`, inline: true },
                                 { name: '📌 المصدر', value: embedTitle, inline: true }
                             )
                             .setColor(0x57F287)
