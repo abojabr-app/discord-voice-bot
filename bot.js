@@ -1,5 +1,5 @@
 const express = require('express');
-const { Client, GatewayIntentBits, Partials, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, RoleSelectMenuBuilder, UserSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -249,7 +249,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// التعامل مع التفاعلات وقوائم البحث الأصلية (Role/User Select Menus)
+// التعامل مع الأزرار ونوافذ إدخال الآيدي المباشرة والمضمونة 100%
 client.on('interactionCreate', async interaction => {
     try {
         const guild = interaction.guild;
@@ -258,48 +258,100 @@ client.on('interactionCreate', async interaction => {
         if (interaction.isButton()) {
             const customId = interaction.customId;
 
+            // 1. زر إرسال رول (إدارة السيرفر) -> يفتح نافذة تطلب آيدي الرول ونص الرسالة
             if (customId === 'global_send_role_btn') {
-                const roleSelect = new RoleSelectMenuBuilder()
-                    .setCustomId('direct_role_select_admin')
-                    .setPlaceholder('🎯 اختر أو الصق آيدي الرول...')
-                    .setMinValues(1)
-                    .setMaxValues(1);
+                const modal = new ModalBuilder()
+                    .setCustomId('modal_id_role_admin')
+                    .setTitle('إرسال رسالة لرول معين (بالآيدي)');
 
-                const row = new ActionRowBuilder().addComponents(roleSelect);
-                return await interaction.reply({ content: '👇 اختر الرول المطلوب أو الصق آيديه مباشرة:', components: [row], ephemeral: true });
+                const idInput = new TextInputBuilder()
+                    .setCustomId('target_id')
+                    .setLabel('أدخل أو الصق آيدي الرول (Role ID):')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('ألصق الآيدي هنا مباشرة...')
+                    .setRequired(true);
+
+                const msgInput = new TextInputBuilder()
+                    .setCustomId('target_msg')
+                    .setLabel('محتوى الرسالة:')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setPlaceholder('اكتب رسالتك هنا...')
+                    .setRequired(true);
+
+                modal.addComponents(new ActionRowBuilder().addComponents(idInput), new ActionRowBuilder().addComponents(msgInput));
+                return await interaction.showModal(modal);
             }
 
+            // 2. زر إرسال لعضو (إدارة السيرفر) -> يفتح نافذة تطلب آيدي العضو ونص الرسالة
             if (customId === 'global_send_user_btn') {
-                const userSelect = new UserSelectMenuBuilder()
-                    .setCustomId('direct_user_select_admin')
-                    .setPlaceholder('👤 اختر أو الصق آيدي العضو...')
-                    .setMinValues(1)
-                    .setMaxValues(1);
+                const modal = new ModalBuilder()
+                    .setCustomId('modal_id_user_admin')
+                    .setTitle('إرسال رسالة لعضو معين (بالآيدي)');
 
-                const row = new ActionRowBuilder().addComponents(userSelect);
-                return await interaction.reply({ content: '👇 اختر العضو أو الصق آيديه مباشرة:', components: [row], ephemeral: true });
+                const idInput = new TextInputBuilder()
+                    .setCustomId('target_id')
+                    .setLabel('أدخل أو الصق آيدي العضو (User ID):')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('ألصق الآيدي هنا مباشرة...')
+                    .setRequired(true);
+
+                const msgInput = new TextInputBuilder()
+                    .setCustomId('target_msg')
+                    .setLabel('محتوى الرسالة الشخصية:')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setPlaceholder('اكتب رسالتك هنا...')
+                    .setRequired(true);
+
+                modal.addComponents(new ActionRowBuilder().addComponents(idInput), new ActionRowBuilder().addComponents(msgInput));
+                return await interaction.showModal(modal);
             }
 
+            // 3. زر إرسال رول (مدير القروب)
             if (customId === 'manager_send_role_btn') {
-                const roleSelect = new RoleSelectMenuBuilder()
-                    .setCustomId('direct_role_select_manager')
-                    .setPlaceholder('🎯 اختر أو الصق آيدي الرول...')
-                    .setMinValues(1)
-                    .setMaxValues(1);
+                const modal = new ModalBuilder()
+                    .setCustomId('modal_id_role_manager')
+                    .setTitle('إرسال رسالة لرول (مدير القروب)');
 
-                const row = new ActionRowBuilder().addComponents(roleSelect);
-                return await interaction.reply({ content: '👇 اختر الرول المطلوب أو الصق آيديه مباشرة (مدير القروب):', components: [row], ephemeral: true });
+                const idInput = new TextInputBuilder()
+                    .setCustomId('target_id')
+                    .setLabel('أدخل أو الصق آيدي الرول (Role ID):')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('ألصق الآيدي هنا مباشرة...')
+                    .setRequired(true);
+
+                const msgInput = new TextInputBuilder()
+                    .setCustomId('target_msg')
+                    .setLabel('محتوى الرسالة:')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setPlaceholder('اكتب رسالتك هنا...')
+                    .setRequired(true);
+
+                modal.addComponents(new ActionRowBuilder().addComponents(idInput), new ActionRowBuilder().addComponents(msgInput));
+                return await interaction.showModal(modal);
             }
 
+            // 4. زر إرسال لعضو (مدير القروب)
             if (customId === 'manager_send_user_btn') {
-                const userSelect = new UserSelectMenuBuilder()
-                    .setCustomId('direct_user_select_manager')
-                    .setPlaceholder('👤 اختر أو الصق آيدي العضو...')
-                    .setMinValues(1)
-                    .setMaxValues(1);
+                const modal = new ModalBuilder()
+                    .setCustomId('modal_id_user_manager')
+                    .setTitle('إرسال رسالة لعضو (مدير القروب)');
 
-                const row = new ActionRowBuilder().addComponents(userSelect);
-                return await interaction.reply({ content: '👇 اختر العضو أو الصق آيديه مباشرة (مدير القروب):', components: [row], ephemeral: true });
+                const idInput = new TextInputBuilder()
+                    .setCustomId('target_id')
+                    .setLabel('أدخل أو الصق آيدي العضو (User ID):')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('ألصق الآيدي هنا مباشرة...')
+                    .setRequired(true);
+
+                const msgInput = new TextInputBuilder()
+                    .setCustomId('target_msg')
+                    .setLabel('محتوى الرسالة الشخصية:')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setPlaceholder('اكتب رسالتك هنا...')
+                    .setRequired(true);
+
+                modal.addComponents(new ActionRowBuilder().addComponents(idInput), new ActionRowBuilder().addComponents(msgInput));
+                return await interaction.showModal(modal);
             }
 
             if (customId.startsWith('mute_room_') || customId.startsWith('unmute_room_')) {
@@ -332,46 +384,6 @@ client.on('interactionCreate', async interaction => {
                 await Promise.all(promises);
                 return;
             }
-        }
-
-        if (interaction.isRoleSelectMenu()) {
-            const isManager = interaction.customId.includes('_manager');
-            const selectedRoleId = interaction.values[0];
-            const suffix = isManager ? 'manager' : 'admin';
-
-            const modal = new ModalBuilder()
-                .setCustomId(`modal_role_msg_${suffix}_${selectedRoleId}`)
-                .setTitle('اكتب رسالة أصحاب الرول');
-
-            const messageInput = new TextInputBuilder()
-                .setCustomId('role_message_text')
-                .setLabel('محتوى الرسالة:')
-                .setStyle(TextInputStyle.Paragraph)
-                .setPlaceholder('اكتب هنا رسالتك...')
-                .setRequired(true);
-
-            modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
-            return await interaction.showModal(modal);
-        }
-
-        if (interaction.isUserSelectMenu()) {
-            const isManager = interaction.customId.includes('_manager');
-            const selectedUserId = interaction.values[0];
-            const suffix = isManager ? 'manager' : 'admin';
-
-            const modal = new ModalBuilder()
-                .setCustomId(`modal_user_msg_${suffix}_${selectedUserId}`)
-                .setTitle('رسالة توجيه/تنبيه شخصية');
-
-            const messageInput = new TextInputBuilder()
-                .setCustomId('user_message_text')
-                .setLabel('محتوى الرسالة الشخصية:')
-                .setStyle(TextInputStyle.Paragraph)
-                .setPlaceholder('اكتب التنبيه هنا...')
-                .setRequired(true);
-
-            modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
-            return await interaction.showModal(modal);
         }
 
         if (interaction.isStringSelectMenu()) {
@@ -421,22 +433,24 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
+        // استقبال الآيدي والرسالة وإرسالها مباشرة
         if (interaction.isModalSubmit()) {
-            if (interaction.customId.startsWith('modal_role_msg_')) {
-                const parts = interaction.customId.split('_');
-                const type = parts[3]; 
-                const roleId = parts[4];
-                const messageText = interaction.fields.getTextInputValue('role_message_text');
+            const customId = interaction.customId;
+
+            if (customId === 'modal_id_role_admin' || customId === 'modal_id_role_manager') {
+                const isManager = customId.includes('manager');
+                const roleId = interaction.fields.getTextInputValue('target_id').trim();
+                const messageText = interaction.fields.getTextInputValue('target_msg');
 
                 await interaction.deferReply({ ephemeral: true });
 
                 const targetRole = await guild.roles.fetch(roleId).catch(() => null);
                 if (!targetRole) {
-                    return interaction.editReply('❌ عذراً، لم يتم العثور على هذا الرول.');
+                    return interaction.editReply('❌ عذراً، لم يتم العثور على رول بهذا الآيدي. تأكد من صحة الآيدي المُلصق.');
                 }
 
-                const embedTitle = (type === 'manager') ? 'توجيه من مدير القروب 📨' : 'توجيه من إدارة السيرفر 📨';
-                const embedColor = (type === 'manager') ? 0xFF0000 : 0x5865F2;
+                const embedTitle = isManager ? 'توجيه من مدير القروب 📨' : 'توجيه من إدارة السيرفر 📨';
+                const embedColor = isManager ? 0xFF0000 : 0x5865F2;
 
                 const roleEmbed = new EmbedBuilder()
                     .setTitle(embedTitle)
@@ -458,22 +472,21 @@ client.on('interactionCreate', async interaction => {
                 return interaction.editReply(`✅ تم الإرسال بنجاح إلى **${successCount}** عضو يحملون رول **${targetRole.name}**!`);
             }
 
-            if (interaction.customId.startsWith('modal_user_msg_')) {
-                const parts = interaction.customId.split('_');
-                const type = parts[3]; 
-                const userId = parts[4];
-                const messageText = interaction.fields.getTextInputValue('user_message_text');
+            if (customId === 'modal_id_user_admin' || customId === 'modal_id_user_manager') {
+                const isManager = customId.includes('manager');
+                const userId = interaction.fields.getTextInputValue('target_id').trim();
+                const messageText = interaction.fields.getTextInputValue('target_msg');
 
                 await interaction.deferReply({ ephemeral: true });
 
                 try {
                     const targetMember = await guild.members.fetch(userId).catch(() => null);
                     if (!targetMember) {
-                        return interaction.editReply('❌ لم يتم العثور على هذا العضو في السيرفر.');
+                        return interaction.editReply('❌ عذراً، لم يتم العثور على عضو بهذا الآيدي في السيرفر.');
                     }
 
-                    const embedTitle = (type === 'manager') ? 'توجيه من مدير القروب 📨' : 'توجيه من إدارة السيرفر 📨';
-                    const embedColor = (type === 'manager') ? 0xFF0000 : 0xFEE75C;
+                    const embedTitle = isManager ? 'توجيه من مدير القروب 📨' : 'توجيه من إدارة السيرفر 📨';
+                    const embedColor = isManager ? 0xFF0000 : 0xFEE75C;
 
                     const userEmbed = new EmbedBuilder()
                         .setTitle(embedTitle)
