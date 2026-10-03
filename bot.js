@@ -92,6 +92,11 @@ client.once('ready', async () => {
                 new ButtonBuilder().setCustomId('global_send_user_btn').setLabel('✉ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
             ));
 
+            // زر تغيير صورة البوت في الصف الثالث
+            rows.push(new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('change_bot_avatar_btn').setLabel('🖼️ تغيير صورة البوت').setStyle(ButtonStyle.Success)
+            ));
+
             await logChannel.send({ embeds: [embed], components: rows });
         }
 
@@ -110,12 +115,16 @@ client.once('ready', async () => {
                 .setDescription('مرحباً بك يا مدير القروب. يمكنك من هنا إرسال رسائل خاصة وتوجيهات للأعضاء أو الرولات بسرعة وسهولة:')
                 .setColor(0xFF0000);
 
-            const managerRow = new ActionRowBuilder().addComponents(
+            const managerRow1 = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('manager_send_role_btn').setLabel('📢 إرسال رسالة لرول معين').setStyle(ButtonStyle.Danger),
                 new ButtonBuilder().setCustomId('manager_send_user_btn').setLabel('✉ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
             );
 
-            await managerChannel.send({ embeds: [managerEmbed], components: [managerRow] });
+            const managerRow2 = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('change_bot_avatar_btn').setLabel('🖼️ تغيير صورة البوت').setStyle(ButtonStyle.Success)
+            );
+
+            await managerChannel.send({ embeds: [managerEmbed], components: [managerRow1, managerRow2] });
         }
 
         // 3. تنظيف روم الإنبوكس المطلوب بالكامل للإطلاق الرسمي
@@ -249,7 +258,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// التعامل مع التفاعلات (قوائم البحث + زر الإدخال اليدوي عند الحاجة)
+// التعامل مع التفاعلات (الأزرار، القوائم، وتغيير صورة البوت)
 client.on('interactionCreate', async interaction => {
     try {
         const guild = interaction.guild;
@@ -258,7 +267,24 @@ client.on('interactionCreate', async interaction => {
         if (interaction.isButton()) {
             const customId = interaction.customId;
 
-            // عند الضغط على زر إرسال رول -> تظهر قائمة البحث ومعها زر إضافي للبحث اليدوي بالآيدي
+            // زر تغيير صورة البوت -> يفتح نافذة تطلب رابط الصورة الجديد
+            if (customId === 'change_bot_avatar_btn') {
+                const modal = new ModalBuilder()
+                    .setCustomId('modal_change_avatar')
+                    .setTitle('تغيير صورة البوت الشخصية');
+
+                const urlInput = new TextInputBuilder()
+                    .setCustomId('avatar_url')
+                    .setLabel('رابط الصورة المباشر (Image URL):')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('ألصق رابط الصورة هنا (ينتهي بـ png أو jpg أو webp)...')
+                    .setRequired(true);
+
+                modal.addComponents(new ActionRowBuilder().addComponents(urlInput));
+                return await interaction.showModal(modal);
+            }
+
+            // عند الضغط على زر إرسال رول
             if (customId === 'global_send_role_btn' || customId === 'manager_send_role_btn') {
                 const isManager = customId.includes('manager');
                 const suffix = isManager ? 'manager' : 'admin';
@@ -284,7 +310,7 @@ client.on('interactionCreate', async interaction => {
                 });
             }
 
-            // عند الضغط على زر إرسال لعضو -> تظهر قائمة البحث ومعها زر إضافي للإدخال اليدوي
+            // عند الضغط على زر إرسال لعضو
             if (customId === 'global_send_user_btn' || customId === 'manager_send_user_btn') {
                 const isManager = customId.includes('manager');
                 const suffix = isManager ? 'manager' : 'admin';
@@ -479,11 +505,24 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
-        // معالجة البيانات المرسلة من النوافذ (Modal Submit) سواء من القائمة أو الزر اليدوي
+        // معالجة البيانات المرسلة من النوافذ (Modal Submit)
         if (interaction.isModalSubmit()) {
             const customId = interaction.customId;
 
-            // إرسال لرول (سواء من اختيار القائمة أو الآيدي اليدوي)
+            // معالجة تغيير صورة البوت
+            if (customId === 'modal_change_avatar') {
+                const avatarUrl = interaction.fields.getTextInputValue('avatar_url').trim();
+                await interaction.deferReply({ ephemeral: true });
+
+                try {
+                    await client.user.setAvatar(avatarUrl);
+                    return interaction.editReply('✅ تم تغيير صورة البوت الشخصية بنجاح!');
+                } catch (err) {
+                    return interaction.editReply('❌ فشل تغيير الصورة. تأكد من أن الرابط مباشر وصحيح (ينتهي بصيغة صورة مثل png أو jpg) أو أنك لا تكثر من المحاولات لتجنب حظر ديسكورد (Rate Limit).');
+                }
+            }
+
+            // إرسال لرول
             if (customId.startsWith('modal_role_msg_') || customId.startsWith('modal_id_role_')) {
                 let type, roleId, messageText;
 
@@ -494,7 +533,7 @@ client.on('interactionCreate', async interaction => {
                     messageText = interaction.fields.getTextInputValue('role_message_text');
                 } else {
                     const parts = customId.split('_');
-                    type = parts[3]; // admin or manager
+                    type = parts[3];
                     roleId = interaction.fields.getTextInputValue('target_id').trim();
                     messageText = interaction.fields.getTextInputValue('target_msg');
                 }
@@ -529,7 +568,7 @@ client.on('interactionCreate', async interaction => {
                 return interaction.editReply(`✅ تم الإرسال بنجاح إلى **${successCount}** عضو يحملون رول **${targetRole.name}**!`);
             }
 
-            // إرسال لعضو (سواء من اختيار القائمة أو الآيدي اليدوي)
+            // إرسال لعضو
             if (customId.startsWith('modal_user_msg_') || customId.startsWith('modal_id_user_')) {
                 let type, userId, messageText;
 
