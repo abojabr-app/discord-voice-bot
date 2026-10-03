@@ -94,7 +94,7 @@ client.once('ready', async () => {
 
             // زر تغيير صورة البوت هنا فقط في اللوحة الرئيسية
             rows.push(new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('change_bot_avatar_btn').setLabel('🖼️ تغيير صورة البوت').setStyle(ButtonStyle.Success)
+                new ButtonBuilder().setCustomId('change_bot_avatar_btn').setLabel('تغيير صورة البوت').setStyle(ButtonStyle.Success)
             ));
 
             await logChannel.send({ embeds: [embed], components: rows });
@@ -254,7 +254,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// التعامل مع التفاعلات (أزرار، قوائم بحث، زر الإدخال اليدوي، وتغيير الصورة)
+// التعامل مع التفاعلات
 client.on('interactionCreate', async interaction => {
     try {
         const guild = interaction.guild;
@@ -263,24 +263,34 @@ client.on('interactionCreate', async interaction => {
         if (interaction.isButton()) {
             const customId = interaction.customId;
 
-            // زر تغيير صورة البوت (يعمل حصرياً من اللوحة الرئيسية)
+            // زر تغيير صورة البوت -> يفتح نافذة توضح المقاسات المطلوبة وتطلب رابط الصورة
             if (customId === 'change_bot_avatar_btn') {
                 const modal = new ModalBuilder()
                     .setCustomId('modal_change_avatar')
-                    .setTitle('تغيير صورة البوت الشخصية');
+                    .setTitle('تغيير صورة البوت (القياسات المناسبة)');
+
+                const infoInput = new TextInputBuilder()
+                    .setCustomId('avatar_info_note')
+                    .setLabel('القياسات الموصى بها: 512×512 بيكسل (مربع)')
+                    .setStyle(TextInputStyle.Short)
+                    .setValue('ارفع صورتك بأي روم وخذ "Copy Link" للرابط المباشر وضعه بالأسفل 👇')
+                    .setRequired(false);
 
                 const urlInput = new TextInputBuilder()
                     .setCustomId('avatar_url')
                     .setLabel('رابط الصورة المباشر (Image URL):')
                     .setStyle(TextInputStyle.Short)
-                    .setPlaceholder('ألصق رابط الصورة هنا (ينتهي بـ png أو jpg أو webp)...')
+                    .setPlaceholder('ألصق رابط الصورة هنا (ينتهي بـ png أو jpg)...')
                     .setRequired(true);
 
-                modal.addComponents(new ActionRowBuilder().addComponents(urlInput));
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(infoInput),
+                    new ActionRowBuilder().addComponents(urlInput)
+                );
                 return await interaction.showModal(modal);
             }
 
-            // إرسال رسالة لرول (عرض قائمة البحث + زر يدوي)
+            // إرسال رسالة لرول
             if (customId === 'global_send_role_btn' || customId === 'manager_send_role_btn') {
                 const isManager = customId.includes('manager');
                 const suffix = isManager ? 'manager' : 'admin';
@@ -306,7 +316,7 @@ client.on('interactionCreate', async interaction => {
                 });
             }
 
-            // إرسال رسالة لعضو (عرض قائمة البحث + زر يدوي)
+            // إرسال رسالة لعضو
             if (customId === 'global_send_user_btn' || customId === 'manager_send_user_btn') {
                 const isManager = customId.includes('manager');
                 const suffix = isManager ? 'manager' : 'admin';
@@ -501,7 +511,7 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
-        // معالجة البيانات المرسلة من النوافذ (Modal Submit)
+        // معالجة البيانات المرسلة من النوافذ
         if (interaction.isModalSubmit()) {
             const customId = interaction.customId;
 
@@ -514,7 +524,7 @@ client.on('interactionCreate', async interaction => {
                     await client.user.setAvatar(avatarUrl);
                     return interaction.editReply('✅ تم تغيير صورة البوت الشخصية بنجاح!');
                 } catch (err) {
-                    return interaction.editReply('❌ فشل تغيير الصورة. تأكد من أن الرابط مباشر وصحيح (ينتهي بصيغة صورة مثل png أو jpg) أو أنك لا تكثر من المحاولات لتجنب حظر ديسكورد (Rate Limit).');
+                    return interaction.editReply('❌ فشل تغيير الصورة. تأكد من أن الرابط مباشر وصحيح (ينتهي بصيغة صورة مثل png أو jpg) أو أنك تتجنب حظر ديسكورد لكثرة المحاولات.');
                 }
             }
 
@@ -576,7 +586,7 @@ client.on('interactionCreate', async interaction => {
                 } else {
                     const parts = customId.split('_');
                     type = parts[3];
-                    userId = interaction.fields.getTextInputValue('target_id').trim();
+                    userId = interaction.fields.getTextInputValue('target_id').getTextInputValue('target_id').trim() || interaction.fields.getTextInputValue('target_id').trim();
                     messageText = interaction.fields.getTextInputValue('target_msg');
                 }
 
@@ -601,7 +611,7 @@ client.on('interactionCreate', async interaction => {
                     await targetMember.send({ embeds: [userEmbed] });
 
                     const inboxChannel = await guild.channels.fetch(INBOX_CHANNEL_ID).catch(() => {});
-                    if (inboxChannel && inboxChannel.isTextBased()) {
+                    if (inboxChannel && inboxChannel.isTestBased && inboxChannel.isTextBased()) {
                         const copyEmbed = new EmbedBuilder()
                             .setTitle('📤 رسالة تم إرسالها لعضو (سجل الإرسال)')
                             .setDescription(messageText)
