@@ -49,7 +49,11 @@ const SPECIAL_ROOMS = {
 
 const botMutedMembers = new Set();
 const voiceControlMessages = new Map();
-// لتخزين سجل المحادثات المؤقت لكل عضو (لتشغيل ميزة الاطلاع على المحادثة)
+
+// تخزين معلومات الشات الفعّال لكل عضو (أو لكل ثريد)
+// المفتاح: Thread ID، القيمة: { userId, adminRole }
+const activeThreads = new Map();
+// لتخزين سجل المحادثات لكل عضو
 const userChatHistories = new Map();
 
 // إرسال اللوحات عند التشغيل
@@ -158,8 +162,9 @@ client.once('ready', async () => {
     }
 });
 
-// استقبال رسائل الخاص وتحويلها إلى روم الإنبوت مع زر "اطلاع"
+// التعامل مع رسائل الخاص أو الردود داخل رومات الـ Threads
 client.on('messageCreate', async message => {
+    // أمر تنظيف الإنبت
     if (message.content === '!clear_inbox' && message.channel.id === INBOX_CHANNEL_ID) {
         if (message.member && message.member.permissions.has('Administrator')) {
             try {
@@ -170,7 +175,67 @@ client.on('messageCreate', async message => {
         }
     }
 
-    if (message.guild || message.author.bot) return;
+    const guild = message.guild;
+    if (!guild) return; // رسالة خاصة وليست من السيرفر
+
+    // أ) إذا كانت الرسالة مرسلة داخل ثريد (غرفة دردشة العضو)
+    if (message.channel.isThread() && message.channel.parentId === INBOX_CHANNEL_ID) {
+        if (message.author.bot) return;
+
+        const threadId = message.channel.id;
+        const session = activeThreads.get(threadId);
+
+        if (!session) {
+            return message.reply('⚠️ يرجى أولاً اختيار صفة الرد الإدارية من الزر الموجود في أول المحادثة قبل الكتابة!').catch(() => {});
+        }
+
+        const userId = session.userId;
+        const roleType = session.adminRole; // manager, deputy, admin
+        const replyText = message.content;
+
+        try {
+            const targetMember = await guild.members.fetch(userId).catch(() => null);
+            if (!targetMember) {
+                return message.reply('❌ عذراً، لم يتم العثور على العضو في السيرفر.').catch(() => {});
+            }
+
+            let embedTitle = 'توجيه من إدارة السيرفر 📨';
+            let embedColor = 0xFEE75C;
+
+            if (roleType === 'manager') {
+                embedTitle = 'توجيه من مدير القروب 📨';
+                embedColor = 0xFF0000;
+            } else if (roleType === 'deputy') {
+                embedTitle = 'توجيه من نائب المدير 📨';
+                embedColor = 0x3498DB;
+            }
+
+            const replyEmbed = new EmbedBuilder()
+                .setTitle(embedTitle)
+                .setDescription(replyText)
+                .setColor(embedColor)
+                .setTimestamp()
+                .setFooter({ text: guild.name, iconURL: guild.iconURL() });
+
+            // إرسال الرسالة بالخاص للعضو
+            await targetMember.send({ embeds: [replyEmbed] });
+
+            // حفظ الرد في السجل المؤقت
+            if (userChatHistories.has(userId)) {
+                userChatHistories.get(userId).push({ sender: 'admin', content: `[${embedTitle}]:${replyText}`, time: new Date().toLocaleTimeString() });
+            }
+
+            // تأكيد بصري خفيف (تلوين الرسالة أو التفاعل عليها)
+            await message.react('✅').catch(() => {});
+        } catch (err) {
+            await message.react('❌').catch(() => {});
+            await message.reply('❌ فشل إرسال الرد الخاص (قد يكون مقفل الخاص).').catch(() => {});
+        }
+        return;
+    }
+
+    // ب) إذا كانت الرسالة واردة من الخاص (DM) للبوت
+    if (message.author.bot) return;
 
     try {
         const userId = message.author.id;
@@ -179,34 +244,62 @@ client.on('messageCreate', async message => {
         }
         const history = userChatHistories.get(userId);
         history.push({ sender: 'user', content: message.content || '[مرفق]', time: new Date().toLocaleTimeString() });
-        if (history.length > 15) history.shift(); // الاحتفاظ بآخر 15 رسالة
+        if (history.length > 20) history.shift();
 
-        const guild = await client.guilds.fetch(GUILD_ID);
         const inboxChannel = await guild.channels.fetch(INBOX_CHANNEL_ID).catch(() => {});
-
         if (!inboxChannel || !inboxChannel.isTextBased()) return;
 
+        // 1. إرسال تنبيه في روم الإنبوت الرئيسي
         const dmEmbed = new EmbedBuilder()
-            .setTitle('📥 رد جديد في الخاص (DM)')
+            .setTitle('📥 رسالة جديدة من عضو بالخاص')
             .setThumbnail(message.author.displayAvatarURL({ dynamic: true, size: 1024 }))
-            .setDescription(message.content || '[رسالة تحتوى على مرفق أو صورة]')
+            .setDescription(message.content || '[رسالة تحتوي على مرفق أو صورة]')
             .addFields(
                 { name: '👤 اسم العضو', value: `${message.author} (${message.author.tag})`, inline: true },
                 { name: '🆔 الآيدي', value: `\`${message.author.id}\``, inline: true }
             )
             .setColor(0x5865F2)
-            .setTimestamp()
-            .setFooter({ text: guild.name, iconURL: guild.iconURL() });
+            .setTimestamp();
 
-        // زر الاطلاع على المحادثة والرد
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
-                .setCustomId(`inspect_user_${userId}`)
-                .setLabel('🔍 اطلاع على المحادثة والرد')
+                .setCustomId(`open_chat_thread_${userId}`)
+                .setLabel('💬 فتح غرفة الشات والاطلاع والرد')
                 .setStyle(ButtonStyle.Primary)
         );
 
-        await inboxChannel.send({ embeds: [dmEmbed], components: [row] });
+        const sentAlertMsg = await inboxChannel.send({ embeds: [dmEmbed], components: [row] });
+
+        // 2. إنشاء روم فرعي (Thread) تلقائي خاص بهذا العضو فور وصول رسالته
+        const thread = await sentAlertMsg.startThread({
+            name: `شات-${message.author.username}`.slice(0, 100),
+            autoArchiveDuration: 1440, // يؤرشف بعد 24 ساعة من عدم النشاط
+            reason: `محادثة خاصة مع العضو ${message.author.tag}`
+        });
+
+        // تجهيز سجل الرسائل السابقة لعرضه داخل الروم الفرعي
+        let chatSummary = history.map(h => `**[${h.time}] ${h.sender === 'user' ? '👤 العضو' : '🤖 الإدارة'}:** ${h.content}`).join('\n');
+        if (chatSummary.length > 3900) chatSummary = chatSummary.slice(-3900);
+
+        const threadEmbed = new EmbedBuilder()
+            .setTitle(`🔍 سجل المحادثة مع: ${message.author.tag}`)
+            .setDescription(chatSummary)
+            .setColor(0x5865F2)
+            .setFooter({ text: 'اختر الصفة بالأسفل، ثم اكتب أي رسالة هنا وستصل للعضو مباشرة بالخاص!' });
+
+        const roleSelectMenu = new StringSelectMenuBuilder()
+            .setCustomId(`set_thread_role_${userId}`)
+            .setPlaceholder('🛡️ اختر صفة الرد الإدارية أولاً...')
+            .addOptions([
+                { label: '👑 المدير العام', value: 'manager', description: 'الرد بصفتك مدير القروب العام' },
+                { label: '🛡️ نائب المدير', value: 'deputy', description: 'الرد بصفتك نائب المدير' },
+                { label: '💼 إدارة السيرفر / الدعم', value: 'admin', description: 'الرد بصفتك إداري في السيرفر' }
+            ]);
+
+        const threadRow = new ActionRowBuilder().addComponents(roleSelectMenu);
+
+        await thread.send({ embeds: [threadEmbed], components: [threadRow] });
+
     } catch (error) {}
 });
 
@@ -282,7 +375,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// التعامل مع التفاعلات والأزرار والنوافذ
+// التعامل مع التفاعلات والأزرار
 client.on('interactionCreate', async interaction => {
     try {
         const guild = interaction.guild;
@@ -291,45 +384,10 @@ client.on('interactionCreate', async interaction => {
         if (interaction.isButton()) {
             const customId = interaction.customId;
 
-            // زر الاطلاع على المحادثة لعضو معين
-            if (customId.startsWith('inspect_user_')) {
-                const userId = customId.replace('inspect_user_', '');
-                const history = userChatHistories.get(userId) || [{ sender: 'system', content: 'لا توجد رسائل مسجلة سابقة.', time: '' }];
-
-                let desc = history.map(h => `**[${h.time}] ${h.sender === 'user' ? '👤 العضو' : '🤖 البوت/الإدارة'}:** ${h.content}`).join('\n');
-                if (desc.length > 4000) desc = desc.slice(-4000);
-
-                const inspectEmbed = new EmbedBuilder()
-                    .setTitle('🔍 سجل محادثة العضو الكاملة')
-                    .setDescription(desc)
-                    .setColor(0x5865F2)
-                    .setTimestamp();
-
-                const replyRow = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`reply_role_choice_${userId}`)
-                        .setLabel('💬 الرد على العضو (اختيار الصفة)')
-                        .setStyle(ButtonStyle.Success)
-                );
-
-                return await interaction.reply({ embeds: [inspectEmbed], components: [replyRow], ephemeral: true });
-            }
-
-            // اختيار صفة الرد الإدارية
-            if (customId.startsWith('reply_role_choice_')) {
-                const userId = customId.replace('reply_role_choice_', '');
-
-                const selectRoleMenu = new StringSelectMenuBuilder()
-                    .setCustomId(`select_admin_role_reply_${userId}`)
-                    .setPlaceholder('🛡️ اختر الصفة الإدارية للرد...')
-                    .addOptions([
-                        { label: '👑 المدير العام', value: 'manager', description: 'الرد بصفتك مدير القروب العام' },
-                        { label: '🛡️ نائب المدير', value: 'deputy', description: 'الرد بصفتك نائب المدير' },
-                        { label: '💼 إدارة السيرفر / الدعم', value: 'admin', description: 'الرد بصفتك إداري في السيرفر' }
-                    ]);
-
-                const row = new ActionRowBuilder().addComponents(selectRoleMenu);
-                return await interaction.reply({ content: '👇 اختر الصفة التي تريد أن يظهر بها ردك للعضو:', components: [row], ephemeral: true });
+            // زر فتح الشات اليدوي (لو افترضنا أن الثريد لم يفتح تلقائياً)
+            if (customId.startsWith('open_chat_thread_')) {
+                const userId = customId.replace('open_chat_thread_', '');
+                return await interaction.reply({ content: `✅ تفقد الرومات الفرعية (Threads) المفتوحة في الأعلى، ستجد غرفة خاصة بهذا العضو!`, ephemeral: true });
             }
 
             if (customId === 'change_bot_avatar_btn') {
@@ -535,24 +593,22 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.isStringSelectMenu()) {
-            // اختيار صفة الرد المباشر للعضو من لوحة الاطلاع
-            if (interaction.customId.startsWith('select_admin_role_reply_')) {
-                const userId = interaction.customId.replace('select_admin_role_reply_', '');
+            // اختيار الصفة داخل ثريد الشات
+            if (interaction.customId.startsWith('set_thread_role_')) {
+                const userId = interaction.customId.replace('set_thread_role_', '');
                 const roleType = interaction.values[0]; // manager, deputy, admin
+                const threadId = interaction.channelId;
 
-                const modal = new ModalBuilder()
-                    .setCustomId(`modal_send_reply_${roleType}_${userId}`)
-                    .setTitle('كتابة الرد المباشر للعضو');
+                activeThreads.set(threadId, { userId, adminRole: roleType });
 
-                const replyInput = new TextInputBuilder()
-                    .setCustomId('reply_text_content')
-                    .setLabel('محتوى الرد:')
-                    .setStyle(TextInputStyle.Paragraph)
-                    .setPlaceholder('اكتب ردك هنا...')
-                    .setRequired(true);
+                let roleNameDesc = 'إدارة السيرفر';
+                if (roleType === 'manager') roleNameDesc = 'المدير العام';
+                if (roleType === 'deputy') roleNameDesc = 'نائب المدير';
 
-                modal.addComponents(new ActionRowBuilder().addComponents(replyInput));
-                return await interaction.showModal(modal);
+                return await interaction.update({
+                    content: `✅ تم تعيين صفة الرد الحالية في هذا الروم إلى: **[${roleNameDesc}]**.\n✍️ **الآن:** اكتب أي رسالة في الشات وسوف تُرسل للعضو مباشرة!`,
+                    components: []
+                });
             }
 
             if (interaction.customId === 'select_room_actions') {
@@ -603,68 +659,6 @@ client.on('interactionCreate', async interaction => {
 
         if (interaction.isModalSubmit()) {
             const customId = interaction.customId;
-
-            // إرسال الرد المباشر للعضو بعد اختيار الصفة
-            if (customId.startsWith('modal_send_reply_')) {
-                const parts = customId.split('_');
-                const roleType = parts[3]; // manager, deputy, admin
-                const userId = parts[4];
-                const replyText = interaction.fields.getTextInputValue('reply_text_content');
-
-                await interaction.deferReply({ ephemeral: true });
-
-                try {
-                    const targetMember = await guild.members.fetch(userId).catch(() => null);
-                    if (!targetMember) {
-                        return interaction.editReply('❌ عذراً، لم يتم العثور على العضو.');
-                    }
-
-                    let embedTitle = 'توجيه من إدارة السيرفر 📨';
-                    let embedColor = 0xFEE75C;
-
-                    if (roleType === 'manager') {
-                        embedTitle = 'توجيه من مدير القروب 📨';
-                        embedColor = 0xFF0000;
-                    } else if (roleType === 'deputy') {
-                        embedTitle = 'توجيه من نائب المدير 📨';
-                        embedColor = 0x3498DB;
-                    }
-
-                    const replyEmbed = new EmbedBuilder()
-                        .setTitle(embedTitle)
-                        .setDescription(replyText)
-                        .setColor(embedColor)
-                        .setTimestamp()
-                        .setFooter({ text: guild.name, iconURL: guild.iconURL() });
-
-                    await targetMember.send({ embeds: [replyEmbed] });
-
-                    // حفظ الرد في سجل المحادثة المؤقت
-                    if (userChatHistories.has(userId)) {
-                        userChatHistories.get(userId).push({ sender: 'admin', content: `[${embedTitle}]: ${replyText}`, time: new Date().toLocaleTimeString() });
-                    }
-
-                    // توثيق الرد في روم الإنبوت
-                    const inboxChannel = await guild.channels.fetch(INBOX_CHANNEL_ID).catch(() => {});
-                    if (inboxChannel && inboxChannel.isTextBased()) {
-                        const copyEmbed = new EmbedBuilder()
-                            .setTitle('📤 رد إداري تم إرساله لعضو')
-                            .setDescription(replyText)
-                            .addFields(
-                                { name: '👤 العضو', value: `${targetMember} (${targetMember.user.tag})`, inline: true },
-                                { name: '🛡️ المشرف', value: `${interaction.user}`, inline: true },
-                                { name: '📌 الصفة', value: embedTitle, inline: true }
-                            )
-                            .setColor(0x57F287)
-                            .setTimestamp();
-                        await inboxChannel.send({ embeds: [copyEmbed] });
-                    }
-
-                    return interaction.editReply(`✅ تم إرسال الرد بنجاح إلى العضو **${targetMember.user.tag}** بصفتك (${embedTitle})!`);
-                } catch (err) {
-                    return interaction.editReply('❌ فشل إرسال الرد الخاص (قد يكون مقفل الخاص).');
-                }
-            }
 
             if (customId === 'modal_change_avatar') {
                 const avatarUrl = interaction.fields.getTextInputValue('avatar_url').trim();
@@ -774,22 +768,7 @@ client.on('interactionCreate', async interaction => {
 
                     await targetMember.send({ embeds: [userEmbed] });
 
-                    const inboxChannel = await guild.channels.fetch(INBOX_CHANNEL_ID).catch(() => {});
-                    if (inboxChannel && inboxChannel.isTextBased()) {
-                        const copyEmbed = new EmbedBuilder()
-                            .setTitle('📤 رسالة تم إرسالها لعضو (سجل الإرسال)')
-                            .setDescription(messageText)
-                            .addFields(
-                                { name: '👤 المرسل إليه', value: `${targetMember} (${targetMember.user.tag})`, inline: true },
-                                { name: '🛡️ المرسل', value: `${interaction.user}`, inline: true },
-                                { name: '📌 المصدر', value: embedTitle, inline: true }
-                            )
-                            .setColor(0x57F287)
-                            .setTimestamp();
-                        await inboxChannel.send({ embeds: [copyEmbed] });
-                    }
-
-                    return interaction.editReply(`✅ تمت إرسال الرسالة الشخصية بنجاح إلى العضو **${targetMember.user.tag}** وتم توثيقها!`);
+                    return interaction.editReply(`✅ تمت إرسال الرسالة الشخصية بنجاح إلى العضو **${targetMember.user.tag}**!`);
                 } catch (err) {
                     return interaction.editReply('❌ فشل إرسال الرسالة الخاصة لهذا العضو (قد يكون مقفل الخاص).');
                 }
