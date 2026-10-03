@@ -51,7 +51,7 @@ client.once('ready', async () => {
     try {
         const guild = await client.guilds.fetch(GUILD_ID);
 
-        // 1. تنظيف وإعداد روم السجلات الرئيسي
+        // 1. تنظيف وإعداد روم السجلات الرئيسي (مع زر تغيير صورة البوت هنا فقط)
         const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
         if (logChannel && logChannel.isTextBased()) {
             try {
@@ -92,7 +92,7 @@ client.once('ready', async () => {
                 new ButtonBuilder().setCustomId('global_send_user_btn').setLabel('✉ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
             ));
 
-            // زر تغيير صورة البوت في الصف الثالث
+            // زر تغيير صورة البوت هنا فقط في اللوحة الرئيسية
             rows.push(new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('change_bot_avatar_btn').setLabel('🖼️ تغيير صورة البوت').setStyle(ButtonStyle.Success)
             ));
@@ -100,7 +100,7 @@ client.once('ready', async () => {
             await logChannel.send({ embeds: [embed], components: rows });
         }
 
-        // 2. تنظيف وإعداد روم مدير القروب
+        // 2. تنظيف وإعداد روم مدير القروب (بدون زر تغيير الصورة)
         const managerChannel = await guild.channels.fetch(MANAGER_ROOM_ID).catch(() => {});
         if (managerChannel && managerChannel.isTextBased()) {
             try {
@@ -115,16 +115,12 @@ client.once('ready', async () => {
                 .setDescription('مرحباً بك يا مدير القروب. يمكنك من هنا إرسال رسائل خاصة وتوجيهات للأعضاء أو الرولات بسرعة وسهولة:')
                 .setColor(0xFF0000);
 
-            const managerRow1 = new ActionRowBuilder().addComponents(
+            const managerRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('manager_send_role_btn').setLabel('📢 إرسال رسالة لرول معين').setStyle(ButtonStyle.Danger),
                 new ButtonBuilder().setCustomId('manager_send_user_btn').setLabel('✉ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
             );
 
-            const managerRow2 = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('change_bot_avatar_btn').setLabel('🖼️ تغيير صورة البوت').setStyle(ButtonStyle.Success)
-            );
-
-            await managerChannel.send({ embeds: [managerEmbed], components: [managerRow1, managerRow2] });
+            await managerChannel.send({ embeds: [managerEmbed], components: [managerRow] });
         }
 
         // 3. تنظيف روم الإنبوكس المطلوب بالكامل للإطلاق الرسمي
@@ -258,7 +254,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// التعامل مع التفاعلات (الأزرار، القوائم، وتغيير صورة البوت)
+// التعامل مع التفاعلات (أزرار، قوائم بحث، زر الإدخال اليدوي، وتغيير الصورة)
 client.on('interactionCreate', async interaction => {
     try {
         const guild = interaction.guild;
@@ -267,7 +263,7 @@ client.on('interactionCreate', async interaction => {
         if (interaction.isButton()) {
             const customId = interaction.customId;
 
-            // زر تغيير صورة البوت -> يفتح نافذة تطلب رابط الصورة الجديد
+            // زر تغيير صورة البوت (يعمل حصرياً من اللوحة الرئيسية)
             if (customId === 'change_bot_avatar_btn') {
                 const modal = new ModalBuilder()
                     .setCustomId('modal_change_avatar')
@@ -284,7 +280,7 @@ client.on('interactionCreate', async interaction => {
                 return await interaction.showModal(modal);
             }
 
-            // عند الضغط على زر إرسال رول
+            // إرسال رسالة لرول (عرض قائمة البحث + زر يدوي)
             if (customId === 'global_send_role_btn' || customId === 'manager_send_role_btn') {
                 const isManager = customId.includes('manager');
                 const suffix = isManager ? 'manager' : 'admin';
@@ -310,7 +306,7 @@ client.on('interactionCreate', async interaction => {
                 });
             }
 
-            // عند الضغط على زر إرسال لعضو
+            // إرسال رسالة لعضو (عرض قائمة البحث + زر يدوي)
             if (customId === 'global_send_user_btn' || customId === 'manager_send_user_btn') {
                 const isManager = customId.includes('manager');
                 const suffix = isManager ? 'manager' : 'admin';
@@ -509,7 +505,7 @@ client.on('interactionCreate', async interaction => {
         if (interaction.isModalSubmit()) {
             const customId = interaction.customId;
 
-            // معالجة تغيير صورة البوت
+            // تنفيذ تغيير صورة البوت
             if (customId === 'modal_change_avatar') {
                 const avatarUrl = interaction.fields.getTextInputValue('avatar_url').trim();
                 await interaction.deferReply({ ephemeral: true });
