@@ -30,7 +30,6 @@ const INBOX_CHANNEL_ID = '1555355545504850103';
 const MANAGER_ROOM_ID = '1555573365748531251';
 const DEPUTY_ROOM_ID = '1555941998819811439';
 
-const botMutedMembers = new Set();
 const voiceControlMessages = new Map();
 
 client.once('ready', async () => {
@@ -53,7 +52,7 @@ client.once('ready', async () => {
             } catch (e) {}
         };
 
-        // لوحة التحكم الرئيسية (الإدارة العامة)
+        // لوحة التحكم الرئيسية (الإدارة العامة) مطابقة للصورة تماماً
         const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
         if (logChannel && logChannel.isTextBased()) {
             await cleanBotMessages(logChannel);
@@ -70,11 +69,6 @@ client.once('ready', async () => {
 
             rows.push(new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('send_to_server_channel_btn').setLabel('📂 إرسال رسالة لروم في السيرفر').setStyle(ButtonStyle.Success)
-            ));
-
-            // زر الميوت الصوتي فقط بناءً على الكود القديم
-            rows.push(new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('mute_voice_btn').setLabel('🔇 ميوت صوتي لعضو').setStyle(ButtonStyle.Danger)
             ));
 
             await logChannel.send({ embeds: [embed], components: rows });
@@ -121,14 +115,6 @@ client.once('ready', async () => {
 client.on('voiceStateUpdate', async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
     if (guild.id !== GUILD_ID) return;
-
-    const memberId = newState.id;
-
-    if (botMutedMembers.has(memberId) && oldState.serverMute && !newState.serverMute) {
-        if (newState.member && newState.member.voice) {
-            await newState.member.voice.setMute(true).catch(() => {});
-        }
-    }
 
     const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
     if (!logChannel || !logChannel.isTextBased()) return;
@@ -217,20 +203,6 @@ client.on('interactionCreate', async interaction => {
         if (interaction.isButton()) {
             const customId = interaction.customId;
 
-            if (customId === 'mute_voice_btn') {
-                const userSelect = new UserSelectMenuBuilder()
-                    .setCustomId('select_mute_voice')
-                    .setPlaceholder('👤 اختر العضو لتطبيق الميوت الصوتي عليه...')
-                    .setMinValues(1)
-                    .setMaxValues(1);
-
-                return await interaction.reply({
-                    content: '👇 اختر العضو المطلوب من القائمة أدناه:',
-                    components: [new ActionRowBuilder().addComponents(userSelect)],
-                    ephemeral: true
-                });
-            }
-
             if (customId.startsWith('mute_room_') || customId.startsWith('unmute_room_')) {
                 const parts = customId.split('_');
                 const action = parts[0]; 
@@ -246,15 +218,7 @@ client.on('interactionCreate', async interaction => {
 
                 channel.members.forEach(member => {
                     if (member.voice) {
-                        if (shouldMute) {
-                            botMutedMembers.add(member.id);
-                            promises.push(member.voice.setMute(true).catch(() => {}));
-                        } else {
-                            if (botMutedMembers.has(member.id)) {
-                                botMutedMembers.delete(member.id);
-                                promises.push(member.voice.setMute(false).catch(() => {}));
-                            }
-                        }
+                        promises.push(member.voice.setMute(shouldMute).catch(() => {}));
                     }
                 });
 
@@ -416,26 +380,6 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.isUserSelectMenu()) {
-            if (interaction.customId === 'select_mute_voice') {
-                const targetUserId = interaction.values[0];
-
-                await interaction.deferReply({ ephemeral: true });
-                try {
-                    const member = await guild.members.fetch(targetUserId);
-                    if (!member) return interaction.editReply('❌ لم يتم العثور على هذا العضو في السيرفر.');
-
-                    if (!member.voice.channel) {
-                        return interaction.editReply('❌ العضو ليس متصلاً بأي روم صوتي حالياً!');
-                    }
-                    botMutedMembers.add(member.id);
-                    await member.voice.setMute(true, `بواسطة الإداري: ${interaction.user.tag}`);
-                    return interaction.editReply(`✅ تم إعطاء الميوت الصوتي بنجاح للعضو **${member.user.tag}** وحمايته من فك الميوت.`);
-                } catch (err) {
-                    console.error(err);
-                    return interaction.editReply('❌ فشل تنفيذ الميوت، تأكد من صلاحيات البوت الرتبية.');
-                }
-            }
-
             let suffix = 'admin';
             if (interaction.customId.includes('_manager')) suffix = 'manager';
             if (interaction.customId.includes('_deputy')) suffix = 'deputy';
