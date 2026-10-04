@@ -61,7 +61,7 @@ client.once('ready', async () => {
             const rows = [];
             rows.push(new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('global_send_role_btn').setLabel('📢 إرسال رسالة لرول معين').setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId('global_send_user_btn').setLabel('✉️ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId('global_send_user_btn').setLabel('✉️️ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
             ));
 
             rows.push(new ActionRowBuilder().addComponents(
@@ -526,7 +526,7 @@ client.on('interactionCreate', async interaction => {
                         .setTitle('📢 رسالة جماعية تم إرسالها لرول')
                         .addFields(
                             { name: '👤 المرسل', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
-                            { name: '🏷️️ الصفة', value: `\`${customSenderInfo.label}\``, inline: true },
+                            { name: '🏷️ الصفة', value: `\`${customSenderInfo.label}\``, inline: true },
                             { name: '🎯 الرول المستهدف', value: `${targetRole.name} (\`${targetRole.id}\`)`, inline: true },
                             { name: '📊 نسبة الوصول', value: `تم الإرسال بنجاح إلى ${successCount} من ${membersWithRole.length} عضو`, inline: false },
                             { name: '💬 محتوى الرسالة', value: messageText, inline: false }
