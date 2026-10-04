@@ -332,40 +332,6 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
             }
         }
     }
-
-    const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
-    if (!logChannel || !logChannel.isTextBased()) return;
-
-    if (oldState.channel && oldState.channel.members.size === 0) {
-        if (voiceControlMessages.has(oldState.channel.id)) {
-            try {
-                const msg = await logChannel.messages.fetch(voiceControlMessages.get(oldState.channel.id));
-                if (msg) await msg.delete();
-            } catch (e) {}
-            voiceControlMessages.delete(oldState.channel.id);
-        }
-    }
-
-    if (newState.channel && newState.channel.members.size > 0) {
-        const vc = newState.channel;
-        if (!voiceControlMessages.has(vc.id)) {
-            const embed = new EmbedBuilder()
-                .setTitle(`🎛️ خيارات الروم الصوتي: ${vc.name}`)
-                .setDescription(`تم دخول أعضاء إلى هذا الروم. استخدم الأزرار أدناه لكتم أو فك الكتم عن أعضاء الروم:`)
-                .setColor(0x2f3136)
-                .setTimestamp();
-
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`mute_room_${vc.id}`).setLabel('🔇 كتم أعضاء الروم').setStyle(ButtonStyle.Danger),
-                new ButtonBuilder().setCustomId(`unmute_room_${vc.id}`).setLabel('🔊 فك الكتم').setStyle(ButtonStyle.Success)
-            );
-
-            try {
-                const sentMsg = await logChannel.send({ embeds: [embed], components: [row] });
-                voiceControlMessages.set(vc.id, sentMsg.id);
-            } catch (err) {}
-        }
-    }
 });
 
 // التعامل مع التفاعلات
@@ -505,37 +471,6 @@ client.on('interactionCreate', async interaction => {
 
                 modal.addComponents(new ActionRowBuilder().addComponents(idInput), new ActionRowBuilder().addComponents(msgInput));
                 return await interaction.showModal(modal);
-            }
-
-            if (customId.startsWith('mute_room_') || customId.startsWith('unmute_room_')) {
-                const parts = customId.split('_');
-                const action = parts[0]; 
-                const channelId = parts[2];
-
-                await interaction.deferUpdate();
-
-                const channel = await guild.channels.fetch(channelId).catch(() => {});
-                if (!channel || !channel.isVoiceBased()) return;
-
-                const shouldMute = (action === 'mute');
-                const promises = [];
-
-                channel.members.forEach(member => {
-                    if (member.voice) {
-                        if (shouldMute) {
-                            botMutedMembers.add(member.id);
-                            promises.push(member.voice.setMute(true).catch(() => {}));
-                        } else {
-                            if (botMutedMembers.has(member.id)) {
-                                botMutedMembers.delete(member.id);
-                                promises.push(member.voice.setMute(false).catch(() => {}));
-                            }
-                        }
-                    }
-                });
-
-                await Promise.all(promises);
-                return;
             }
         }
 
