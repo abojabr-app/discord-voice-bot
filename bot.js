@@ -55,17 +55,23 @@ client.once('ready', async () => {
             await cleanBotMessages(logChannel);
             const embed = new EmbedBuilder()
                 .setTitle('⚖️ لوحة التحكم الإدارية الرسمية')
-                .setDescription('مرحباً بك في لوحة تحكم السيرفر الرسمية.\nاستخدم الأزرار أدناه للإرسال الموجه والتوجيهات:')
+                .setDescription('مرحباً بك في لوحة تحكم السيرفر الرسمية.\nاستخدم الأزرار أدناه للإرسال الموجه، وتخفيف أو فك كتم أعضاء الرومات الصوتية مباشرة من هنا:')
                 .setColor(0x2f3136);
 
             const rows = [];
             rows.push(new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('global_send_role_btn').setLabel('📢 إرسال رسالة لرول معين').setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId('global_send_user_btn').setLabel('✉️️ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId('global_send_user_btn').setLabel('✉ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
             ));
 
             rows.push(new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('send_to_server_channel_btn').setLabel('📂 إرسال رسالة لروم في السيرفر').setStyle(ButtonStyle.Success)
+            ));
+
+            // أزرار الكتم العامة للتحكم بأي روم صوتي نشط
+            rows.push(new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('mute_all_voice_members_btn').setLabel('🔇 كتم جميع أعضاء الرومات').setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId('unmute_all_voice_members_btn').setLabel('🔊 فك الكتم عن الجميع').setStyle(ButtonStyle.Success)
             ));
 
             await logChannel.send({ embeds: [embed], components: rows });
@@ -81,7 +87,7 @@ client.once('ready', async () => {
 
             const managerRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('manager_send_role_btn').setLabel('📢 إرسال رسالة لرول معين').setStyle(ButtonStyle.Danger),
-                new ButtonBuilder().setCustomId('manager_send_user_btn').setLabel('✉️ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId('manager_send_user_btn').setLabel('✉️️ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
             );
 
             await managerChannel.send({ embeds: [managerEmbed], components: [managerRow] });
@@ -104,42 +110,6 @@ client.once('ready', async () => {
         }
     } catch (error) {
         console.error('خطأ عند بدء البوت:', error);
-    }
-});
-
-client.on('voiceStateUpdate', async (oldState, newState) => {
-    try {
-        if (!oldState.channelId && newState.channelId) {
-            const member = newState.member;
-            if (member.user.bot) return;
-
-            const channel = newState.channel;
-            
-            const embed = new EmbedBuilder()
-                .setTitle(`🎛️ خيارات الروم الصوتي: 🔊 ${channel.name}`)
-                .setDescription('تم دخول أعضاء إلى هذا الروم. استخدم الأزرار أدناه لكتم أو فك الكتم عن أعضاء الروم:')
-                .setColor(0x2f3136)
-                .setTimestamp();
-
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId(`mute_room_members_${channel.id}`)
-                    .setLabel('كتم أعضاء الروم')
-                    .setStyle(ButtonStyle.Danger)
-                    .setEmoji('🔇'),
-                new ButtonBuilder()
-                    .setCustomId(`unmute_room_members_${channel.id}`)
-                    .setLabel('فك الكتم')
-                    .setStyle(ButtonStyle.Success)
-                    .setEmoji('🔊')
-            );
-
-            if (channel.isTextBased && channel.send) {
-                await channel.send({ embeds: [embed], components: [row] }).catch(() => {});
-            }
-        }
-    } catch (err) {
-        console.error('خطأ في نظام الروم الصوتي:', err);
     }
 });
 
@@ -195,28 +165,24 @@ client.on('interactionCreate', async interaction => {
         if (interaction.isButton()) {
             const customId = interaction.customId;
 
-            if (customId.startsWith('mute_room_members_') || customId.startsWith('unmute_room_members_')) {
+            if (customId === 'mute_all_voice_members_btn' || customId === 'unmute_all_voice_members_btn') {
                 await interaction.deferReply({ ephemeral: true }).catch(() => {});
-
-                const parts = customId.split('_');
-                const channelId = parts[parts.length - 1];
-                const shouldMute = customId.startsWith('mute_room_members_');
-
-                const voiceChannel = await guild.channels.fetch(channelId).catch(() => null);
-                if (!voiceChannel || voiceChannel.type !== ChannelType.GuildVoice) {
-                    return interaction.editReply({ content: '❌ الروم الصوتي غير موجود أو تم إغلاقه!' }).catch(() => {});
-                }
+                const shouldMute = customId === 'mute_all_voice_members_btn';
 
                 let count = 0;
-                for (const [, mem] of voiceChannel.members) {
-                    if (!mem.user.bot) {
-                        await mem.voice.setMute(shouldMute).catch(() => {});
-                        count++;
+                for (const [, channel] of guild.channels.cache) {
+                    if (channel.type === ChannelType.GuildVoice) {
+                        for (const [, mem] of channel.members) {
+                            if (!mem.user.bot) {
+                                await mem.voice.setMute(shouldMute).catch(() => {});
+                                count++;
+                            }
+                        }
                     }
                 }
 
                 return interaction.editReply({ 
-                    content: `✅ تم ${shouldMute ? 'كتم' : 'فك الكتم عن'} (${count}) عضواً في روم **${voiceChannel.name}**.` 
+                    content: `✅ تم ${shouldMute ? 'كتم' : 'فك الكتم عن'} (${count}) عضواً في جميع الرومات الصوتية بالسيرفر.` 
                 }).catch(() => {});
             }
 
