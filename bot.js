@@ -28,21 +28,7 @@ const GUILD_ID = '1200422663424847882';
 const LOG_CHANNEL_ID = '1539617469201915964';
 const INBOX_CHANNEL_ID = '1555355545504850103';
 const MANAGER_ROOM_ID = '1555573365748531251';
-
 const DEPUTY_ROOM_ID = '1555941998819811439';
-const DEPUTY_USER_ID = '1200448943365034036';
-const DEPUTY_VOICE_ID = '1555941900773498951';
-
-const SPECIAL_ROOMS = {
-    '1431905620230930473': '1218664301729026254',
-    '1329454808553357312': '890351885339480115',
-    '1511922936297160834': '713105913334071358',
-    '1527063216860172429': '1173308991619743865',
-    [DEPUTY_VOICE_ID]: DEPUTY_USER_ID
-};
-
-const botMutedMembers = new Set();
-const voiceControlMessages = new Map();
 
 client.once('ready', async () => {
     console.log(`Bot logged in as ${client.user.tag}!`);
@@ -64,75 +50,57 @@ client.once('ready', async () => {
             } catch (e) {}
         };
 
+        // لوحة التحكم الرئيسية (الإدارة العامة)
         const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
         if (logChannel && logChannel.isTextBased()) {
             await cleanBotMessages(logChannel);
             const embed = new EmbedBuilder()
-                .setTitle('🎙️ لوحة تحكم الرومات الصوتية')
-                .setDescription('استخدم القائمة أدناه لاختيار الروم وإرسال رسائل خاصة، أو تحكم بأبرز الرومات:')
+                .setTitle('⚖️ لوحة التحكم الإدارية الرسمية')
+                .setDescription('مرحباً بك في لوحة تحكم السيرفر الرسمية.\nاستخدم الأزرار أدناه للإرسال الموجه والتوجيهات الرسمية:')
                 .setColor(0x2f3136);
 
             const rows = [];
-            await guild.channels.fetch();
-            const allVoiceChannels = guild.channels.cache.filter(c => c.isVoiceBased());
-            const roomOptions = [];
-            allVoiceChannels.forEach(vc => {
-                roomOptions.push({
-                    label: vc.name.slice(0, 100),
-                    description: `خيارات إرسال وتحكم لـ: ${vc.name}`.slice(0, 100),
-                    value: `manage_room_${vc.id}`
-                });
-            });
-
-            if (roomOptions.length > 0) {
-                rows.push(new ActionRowBuilder().addComponents(
-                    new StringSelectMenuBuilder()
-                        .setCustomId('select_room_actions')
-                        .setPlaceholder('📂 اختر روم للتحكم أو إرسال الرسائل...')
-                        .addOptions(roomOptions.slice(0, 25))
-                ));
-            }
-
             rows.push(new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('global_send_role_btn').setLabel('📢 إرسال رسالة لرول معين').setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId('global_send_user_btn').setLabel('✉ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId('global_send_user_btn').setLabel('✉️ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
             ));
 
             rows.push(new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('send_to_server_channel_btn').setLabel('📢 إرسال رسالة لروم في السيرفر').setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId('change_bot_avatar_btn').setLabel('تغيير صورة البوت').setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId('send_to_server_channel_btn').setLabel('📂 إرسال رسالة لروم في السيرفر').setStyle(ButtonStyle.Success)
             ));
 
             await logChannel.send({ embeds: [embed], components: rows });
         }
 
+        // لوحة إدارة القروب (المدير)
         const managerChannel = await guild.channels.fetch(MANAGER_ROOM_ID).catch(() => {});
         if (managerChannel && managerChannel.isTextBased()) {
             await cleanBotMessages(managerChannel);
             const managerEmbed = new EmbedBuilder()
-                .setTitle('🛡 لوحة إدارة القروب الخاصة')
-                .setDescription('مرحباً بك يا مدير القروب. يمكنك من هنا إرسال رسائل خاصة وتوجيهات للأعضاء أو الرولات:')
+                .setTitle('🛡️ لوحة إدارة القروب الرسمية')
+                .setDescription('مرحباً بك يا مدير القروب. يمكنك من هنا إرسال التوجيهات الرسمية المعتمدة للأعضاء أو الرولات:')
                 .setColor(0xFF0000);
 
             const managerRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('manager_send_role_btn').setLabel('📢 إرسال رسالة لرول معين').setStyle(ButtonStyle.Danger),
-                new ButtonBuilder().setCustomId('manager_send_user_btn').setLabel('✉ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId('manager_send_user_btn').setLabel('✉️ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
             );
 
             await managerChannel.send({ embeds: [managerEmbed], components: [managerRow] });
         }
 
+        // لوحة إدارة نائب المدير
         const deputyChannel = await guild.channels.fetch(DEPUTY_ROOM_ID).catch(() => {});
         if (deputyChannel && deputyChannel.isTextBased()) {
             await cleanBotMessages(deputyChannel);
             const deputyEmbed = new EmbedBuilder()
-                .setTitle('🛡️ لوحة إدارة نائب المدير')
-                .setDescription('مرحباً بك يا نائب المدير. يمكنك من هنا إرسال رسائل وتوجيهات رسمية للأعضاء أو الرولات:')
+                .setTitle('🛡️ لوحة إدارة نائب المدير الرسمية')
+                .setDescription('مرحباً بك يا نائب المدير. يمكنك من هنا إرسال التوجيهات والإشعارات الرسمية للأعضاء أو الرولات:')
                 .setColor(0x3498DB);
 
             const deputyRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('deputy_send_role_btn').setLabel('📢 إرسال رسالة لرول معين').setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId('deputy_send_user_btn').setLabel('✉ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId('deputy_send_user_btn').setLabel('✉️ إرسال رسالة لعضو معين').setStyle(ButtonStyle.Secondary)
             );
 
             await deputyChannel.send({ embeds: [deputyEmbed], components: [deputyRow] });
@@ -156,7 +124,7 @@ client.on('messageCreate', async message => {
                 .setThumbnail(message.author.displayAvatarURL({ dynamic: true, size: 1024 }))
                 .setDescription(message.content || '[رسالة تحتوي على مرفق أو صورة]')
                 .addFields(
-                    { name: '👤 اسم العضو', value: `${message.author} (${message.author.tag})`, inline: true },
+                    { name: '👤 اسم العضو', value: `${message.author} (\`${message.author.tag}\`)`, inline: true },
                     { name: '🆔 الآيدي', value: `\`${message.author.id}\``, inline: true }
                 )
                 .setColor(0x5865F2)
@@ -164,8 +132,8 @@ client.on('messageCreate', async message => {
 
             const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
-                    .setCustomId(`reply_user_modal_${message.author.id}`)
-                    .setLabel('💬 الرد على العضو')
+                    .setCustomId(`reply_user_modal_admin_${message.author.id}`)
+                    .setLabel('💬 الرد على العضو (إداري)')
                     .setStyle(ButtonStyle.Primary)
             );
 
@@ -180,6 +148,17 @@ client.on('interactionCreate', async interaction => {
         if (!guild) return;
 
         const inboxChannel = await guild.channels.fetch(INBOX_CHANNEL_ID).catch(() => {});
+
+        // تحديد اسم ووصف المرسل بناءً على الروم أو الزر المستخدم
+        const getSenderInfo = (int) => {
+            if (int.channelId === MANAGER_ROOM_ID || int.customId.includes('manager')) {
+                return { title: 'توجيه رسمي من مدير القروب', label: 'مدير القروب' };
+            }
+            if (int.channelId === DEPUTY_ROOM_ID || int.customId.includes('deputy')) {
+                return { title: 'توجيه رسمي من نائب المدير', label: 'نائب المدير' };
+            }
+            return { title: `توجيه رسمي من الإدارة (${int.user.username})`, label: 'إداري عام' };
+        };
 
         if (interaction.isButton()) {
             const customId = interaction.customId;
@@ -210,17 +189,22 @@ client.on('interactionCreate', async interaction => {
                     .setTitle('إرسال رسالة لروم (بالآيدي اليدوي)');
 
                 const idInput = new TextInputBuilder().setCustomId('target_id').setLabel('آيدي الروم (Channel ID):').setStyle(TextInputStyle.Short).setRequired(true);
-                const msgInput = new TextInputBuilder().setCustomId('target_msg').setLabel('محتوى الرسالة:').setStyle(TextInputStyle.Paragraph).setRequired(true);
+                const msgInput = new TextInputBuilder().setCustomId('target_msg').setLabel('محتوى الرسالة الرسمية:').setStyle(TextInputStyle.Paragraph).setRequired(true);
 
                 modal.addComponents(new ActionRowBuilder().addComponents(idInput), new ActionRowBuilder().addComponents(msgInput));
                 return await interaction.showModal(modal);
             }
 
             if (customId.startsWith('reply_user_modal_')) {
-                const userId = customId.replace('reply_user_modal_', '');
+                const parts = customId.split('_');
+                const userId = parts[parts.length - 1];
+                let suffix = 'admin';
+                if (interaction.channelId === MANAGER_ROOM_ID) suffix = 'manager';
+                if (interaction.channelId === DEPUTY_ROOM_ID) suffix = 'deputy';
+
                 const modal = new ModalBuilder()
-                    .setCustomId(`modal_direct_reply_${userId}`)
-                    .setTitle('الرد المباشر على العضو');
+                    .setCustomId(`modal_direct_reply_${suffix}_${userId}`)
+                    .setTitle('الرد الرسمي المباشر على العضو');
 
                 const msgInput = new TextInputBuilder()
                     .setCustomId('reply_text')
@@ -230,22 +214,6 @@ client.on('interactionCreate', async interaction => {
                     .setRequired(true);
 
                 modal.addComponents(new ActionRowBuilder().addComponents(msgInput));
-                return await interaction.showModal(modal);
-            }
-
-            if (customId === 'change_bot_avatar_btn') {
-                const modal = new ModalBuilder()
-                    .setCustomId('modal_change_avatar')
-                    .setTitle('تغيير صورة البوت');
-
-                const urlInput = new TextInputBuilder()
-                    .setCustomId('avatar_url')
-                    .setLabel('رابط الصورة المباشر (Image URL):')
-                    .setStyle(TextInputStyle.Short)
-                    .setPlaceholder('ألصق رابط الصورة هنا...')
-                    .setRequired(true);
-
-                modal.addComponents(new ActionRowBuilder().addComponents(urlInput));
                 return await interaction.showModal(modal);
             }
 
@@ -302,7 +270,7 @@ client.on('interactionCreate', async interaction => {
                     .setTitle('إرسال رسالة لرول (بالآيدي اليدوي)');
 
                 const idInput = new TextInputBuilder().setCustomId('target_id').setLabel('آيدي الرول (Role ID):').setStyle(TextInputStyle.Short).setRequired(true);
-                const msgInput = new TextInputBuilder().setCustomId('target_msg').setLabel('محتوى الرسالة:').setStyle(TextInputStyle.Paragraph).setRequired(true);
+                const msgInput = new TextInputBuilder().setCustomId('target_msg').setLabel('محتوى الرسالة الرسمية:').setStyle(TextInputStyle.Paragraph).setRequired(true);
 
                 modal.addComponents(new ActionRowBuilder().addComponents(idInput), new ActionRowBuilder().addComponents(msgInput));
                 return await interaction.showModal(modal);
@@ -315,7 +283,7 @@ client.on('interactionCreate', async interaction => {
                     .setTitle('إرسال رسالة لعضو (بالآيدي اليدوي)');
 
                 const idInput = new TextInputBuilder().setCustomId('target_id').setLabel('آيدي العضو (User ID):').setStyle(TextInputStyle.Short).setRequired(true);
-                const msgInput = new TextInputBuilder().setCustomId('target_msg').setLabel('محتوى الرسالة:').setStyle(TextInputStyle.Paragraph).setRequired(true);
+                const msgInput = new TextInputBuilder().setCustomId('target_msg').setLabel('محتوى الرسالة الرسمية:').setStyle(TextInputStyle.Paragraph).setRequired(true);
 
                 modal.addComponents(new ActionRowBuilder().addComponents(idInput), new ActionRowBuilder().addComponents(msgInput));
                 return await interaction.showModal(modal);
@@ -326,7 +294,7 @@ client.on('interactionCreate', async interaction => {
             const selectedChannelId = interaction.values[0];
             const modal = new ModalBuilder()
                 .setCustomId(`modal_channel_msg_${selectedChannelId}`)
-                .setTitle('اكتب رسالة الروم');
+                .setTitle('اكتب رسالة الروم الرسمية');
 
             const messageInput = new TextInputBuilder().setCustomId('channel_message_text').setLabel('محتوى الرسالة:').setStyle(TextInputStyle.Paragraph).setRequired(true);
             modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
@@ -341,7 +309,7 @@ client.on('interactionCreate', async interaction => {
             const selectedRoleId = interaction.values[0];
             const modal = new ModalBuilder()
                 .setCustomId(`modal_role_msg_${suffix}_${selectedRoleId}`)
-                .setTitle('اكتب رسالة أصحاب الرول');
+                .setTitle('اكتب رسالة الرول الرسمية');
 
             const messageInput = new TextInputBuilder().setCustomId('role_message_text').setLabel('محتوى الرسالة:').setStyle(TextInputStyle.Paragraph).setRequired(true);
             modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
@@ -356,7 +324,7 @@ client.on('interactionCreate', async interaction => {
             const selectedUserId = interaction.values[0];
             const modal = new ModalBuilder()
                 .setCustomId(`modal_user_msg_${suffix}_${selectedUserId}`)
-                .setTitle('رسالة توجيه/تنبيه شخصية');
+                .setTitle('رسالة توجيه رسمية شخصية');
 
             const messageInput = new TextInputBuilder().setCustomId('user_message_text').setLabel('محتوى الرسالة:').setStyle(TextInputStyle.Paragraph).setRequired(true);
             modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
@@ -365,8 +333,9 @@ client.on('interactionCreate', async interaction => {
 
         if (interaction.isModalSubmit()) {
             const customId = interaction.customId;
+            const senderInfo = getSenderInfo(interaction);
 
-            // معالجة رسائل الرومات (سواء من القائمة أو اليدوي بالآيدي)
+            // معالجة رسائل الرومات العامة
             if (customId.startsWith('modal_channel_msg_') || customId === 'modal_id_channel') {
                 let targetChannelId, channelMsg;
 
@@ -385,14 +354,20 @@ client.on('interactionCreate', async interaction => {
                         return interaction.editReply('❌ عذراً، لم يتم العثور على الروم أو أنه ليس روم كتابي.');
                     }
 
-                    await targetChannel.send({ content: channelMsg });
+                    const channelEmbed = new EmbedBuilder()
+                        .setTitle(`📢 ${senderInfo.title}`)
+                        .setDescription(channelMsg)
+                        .setColor(0x2f3136)
+                        .setTimestamp();
+
+                    await targetChannel.send({ embeds: [channelEmbed] });
 
                     if (inboxChannel && inboxChannel.isTextBased()) {
                         const logEmbed = new EmbedBuilder()
                             .setTitle('📢 رسالة إدارية تم إرسالها لروم في السيرفر')
                             .addFields(
                                 { name: '👤 المرسل', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
-                                { name: '🏷️ الصفة', value: `\`إداري\``, inline: true },
+                                { name: '🏷️ الصفة', value: `\`${senderInfo.label}\``, inline: true },
                                 { name: '📂 الروم المستهدف', value: `${targetChannel} (\`${targetChannel.id}\`)`, inline: true },
                                 { name: '💬 محتوى الرسالة', value: channelMsg, inline: false }
                             )
@@ -401,32 +376,22 @@ client.on('interactionCreate', async interaction => {
                         await inboxChannel.send({ embeds: [logEmbed] }).catch(() => {});
                     }
 
-                    return interaction.editReply(`✅ تم إرسال الرسالة بنجاح إلى الروم ${targetChannel}!`);
+                    return interaction.editReply(`✅ تم إرسال الرسالة الرسمية بنجاح إلى الروم ${targetChannel}!`);
                 } catch (err) {
                     return interaction.editReply('❌ فشل إرسال الرسالة، تأكد من صحة آيدي الروم وأن البوت يملك صلاحية الإرسال هناك.');
                 }
             }
 
-            if (customId === 'modal_change_avatar') {
-                const avatarUrl = interaction.fields.getTextInputValue('avatar_url').trim();
-                await interaction.deferReply({ ephemeral: true });
-                try {
-                    await client.user.setAvatar(avatarUrl);
-                    return interaction.editReply('✅ تم تغيير صورة البوت الشخصية بنجاح!');
-                } catch (err) {
-                    return interaction.editReply('❌ فشل تغيير الصورة. تأكد من صحة الرابط المباشر.');
-                }
-            }
-
-            const getSenderRoleName = (type) => {
-                if (type === 'manager') return 'من المدير';
-                if (type === 'deputy') return 'من النائب';
-                return 'إداري';
-            };
-
+            // معالجة الرد المباشر على الأعضاء بالخاص
             if (customId.startsWith('modal_direct_reply_')) {
-                const userId = customId.replace('modal_direct_reply_', '');
+                const parts = customId.split('_');
+                const suffix = parts[3];
+                const userId = parts[4];
                 const replyText = interaction.fields.getTextInputValue('reply_text');
+
+                let customSenderInfo = { title: 'توجيه رسمي من إدارة السيرفر', label: 'إداري عام' };
+                if (suffix === 'manager') customSenderInfo = { title: 'توجيه رسمي من مدير القروب', label: 'مدير القروب' };
+                if (suffix === 'deputy') customSenderInfo = { title: 'توجيه رسمي من نائب المدير', label: 'نائب المدير' };
 
                 await interaction.deferReply({ ephemeral: true });
                 try {
@@ -434,7 +399,7 @@ client.on('interactionCreate', async interaction => {
                     if (!targetMember) return interaction.editReply('❌ عذراً، لم يتم العثور على هذا العضو.');
 
                     const replyEmbed = new EmbedBuilder()
-                        .setTitle('توجيه من إدارة السيرفر 📨')
+                        .setTitle(`🛡️ ${customSenderInfo.title}`)
                         .setDescription(replyText)
                         .setColor(0xFEE75C)
                         .setTimestamp();
@@ -442,15 +407,11 @@ client.on('interactionCreate', async interaction => {
                     await targetMember.send({ embeds: [replyEmbed] });
 
                     if (inboxChannel && inboxChannel.isTextBased()) {
-                        let senderTypeLabel = 'إداري';
-                        if (interaction.channelId === MANAGER_ROOM_ID) senderTypeLabel = 'من المدير';
-                        if (interaction.channelId === DEPUTY_ROOM_ID) senderTypeLabel = 'من النائب';
-
                         const logEmbed = new EmbedBuilder()
                             .setTitle('📤 رد إداري تم إرساله لعضو')
                             .addFields(
                                 { name: '👤 المرسل', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
-                                { name: '🏷️ الصفة', value: `\`${senderTypeLabel}\``, inline: true },
+                                { name: '🏷️ الصفة', value: `\`${customSenderInfo.label}\``, inline: true },
                                 { name: '👥 العضو المستهدف', value: `${targetMember} (\`${targetMember.user.tag}\`)`, inline: true },
                                 { name: '💬 محتوى الرد', value: replyText, inline: false }
                             )
@@ -465,6 +426,7 @@ client.on('interactionCreate', async interaction => {
                 }
             }
 
+            // معالجة إرسال الرسائل للرولات
             if (customId.startsWith('modal_role_msg_') || customId.startsWith('modal_id_role_')) {
                 let type, roleId, messageText;
 
@@ -480,12 +442,16 @@ client.on('interactionCreate', async interaction => {
                     messageText = interaction.fields.getTextInputValue('target_msg');
                 }
 
+                let customSenderInfo = { title: 'توجيه رسمي من إدارة السيرفر', label: 'إداري عام' };
+                if (type === 'manager') customSenderInfo = { title: 'توجيه رسمي من مدير القروب', label: 'مدير القروب' };
+                if (type === 'deputy') customSenderInfo = { title: 'توجيه رسمي من نائب المدير', label: 'نائب المدير' };
+
                 await interaction.deferReply({ ephemeral: true });
                 const targetRole = await guild.roles.fetch(roleId).catch(() => null);
                 if (!targetRole) return interaction.editReply('❌ عذراً، لم يتم العثور على رول بهذا الآيدي.');
 
                 const roleEmbed = new EmbedBuilder()
-                    .setTitle('توجيه من إدارة السيرفر 📨')
+                    .setTitle(`📢 ${customSenderInfo.title}`)
                     .setDescription(messageText)
                     .setColor(0x5865F2)
                     .setTimestamp();
@@ -502,12 +468,11 @@ client.on('interactionCreate', async interaction => {
                 }
 
                 if (inboxChannel && inboxChannel.isTextBased()) {
-                    const senderLabel = getSenderRoleName(type);
                     const logEmbed = new EmbedBuilder()
                         .setTitle('📢 رسالة جماعية تم إرسالها لرول')
                         .addFields(
                             { name: '👤 المرسل', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
-                            { name: '🏷️ الصفة', value: `\`${senderLabel}\``, inline: true },
+                            { name: '🏷️ الصفة', value: `\`${customSenderInfo.label}\``, inline: true },
                             { name: '🎯 الرول المستهدف', value: `${targetRole.name} (\`${targetRole.id}\`)`, inline: true },
                             { name: '📊 نسبة الوصول', value: `تم الإرسال بنجاح إلى ${successCount} من ${membersWithRole.length} عضو`, inline: false },
                             { name: '💬 محتوى الرسالة', value: messageText, inline: false }
@@ -520,6 +485,7 @@ client.on('interactionCreate', async interaction => {
                 return interaction.editReply(`✅ تم الإرسال بنجاح إلى **${successCount}** عضو يحملون رول **${targetRole.name}**!`);
             }
 
+            // معالجة إرسال الرسائل للأعضاء بالخاص
             if (customId.startsWith('modal_user_msg_') || customId.startsWith('modal_id_user_')) {
                 let type, userId, messageText;
 
@@ -535,13 +501,17 @@ client.on('interactionCreate', async interaction => {
                     messageText = interaction.fields.getTextInputValue('target_msg');
                 }
 
+                let customSenderInfo = { title: 'توجيه رسمي من إدارة السيرفر', label: 'إداري عام' };
+                if (type === 'manager') customSenderInfo = { title: 'توجيه رسمي من مدير القروب', label: 'مدير القروب' };
+                if (type === 'deputy') customSenderInfo = { title: 'توجيه رسمي من نائب المدير', label: 'نائب المدير' };
+
                 await interaction.deferReply({ ephemeral: true });
                 try {
                     const targetMember = await guild.members.fetch(userId).catch(() => null);
                     if (!targetMember) return interaction.editReply('❌ عذراً، لم يتم العثور على هذا العضو.');
 
                     const userEmbed = new EmbedBuilder()
-                        .setTitle('توجيه من الإدارة 📨')
+                        .setTitle(`🛡️ ${customSenderInfo.title}`)
                         .setDescription(messageText)
                         .setColor(0xFEE75C)
                         .setTimestamp();
@@ -549,12 +519,11 @@ client.on('interactionCreate', async interaction => {
                     await targetMember.send({ embeds: [userEmbed] });
 
                     if (inboxChannel && inboxChannel.isTextBased()) {
-                        const senderLabel = getSenderRoleName(type);
                         const logEmbed = new EmbedBuilder()
                             .setTitle('✉️ رسالة إدارية خاصة تم إرسالها لعضو')
                             .addFields(
                                 { name: '👤 المرسل', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
-                                { name: '🏷️ الصفة', value: `\`${senderLabel}\``, inline: true },
+                                { name: '🏷️ الصفة', value: `\`${customSenderInfo.label}\``, inline: true },
                                 { name: '👥 العضو المستهدف', value: `${targetMember} (\`${targetMember.user.tag}\`)`, inline: true },
                                 { name: '💬 محتوى الرسالة', value: messageText, inline: false }
                             )
