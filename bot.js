@@ -50,7 +50,6 @@ client.once('ready', async () => {
             } catch (e) {}
         };
 
-        // لوحة التحكم الرئيسية بدون أزرار الميوت الزائدة (كما طلبت تماماً)
         const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
         if (logChannel && logChannel.isTextBased()) {
             await cleanBotMessages(logChannel);
@@ -72,7 +71,6 @@ client.once('ready', async () => {
             await logChannel.send({ embeds: [embed], components: rows });
         }
 
-        // لوحة إدارة القروب (المدير)
         const managerChannel = await guild.channels.fetch(MANAGER_ROOM_ID).catch(() => {});
         if (managerChannel && managerChannel.isTextBased()) {
             await cleanBotMessages(managerChannel);
@@ -89,12 +87,11 @@ client.once('ready', async () => {
             await managerChannel.send({ embeds: [managerEmbed], components: [managerRow] });
         }
 
-        // لوحة إدارة نائب المدير
         const deputyChannel = await guild.channels.fetch(DEPUTY_ROOM_ID).catch(() => {});
         if (deputyChannel && deputyChannel.isTextBased()) {
             await cleanBotMessages(deputyChannel);
             const deputyEmbed = new EmbedBuilder()
-                .setTitle('🛡️ لوحة إدارة نائب المدير الرسمية')
+                .setTitle('🛡️️ لوحة إدارة نائب المدير الرسمية')
                 .setDescription('مرحباً بك يا نائب المدير. يمكنك من هنا إرسال التوجيهات والإشعارات الرسمية للأعضاء أو الرولات:')
                 .setColor(0x3498DB);
 
@@ -110,10 +107,8 @@ client.once('ready', async () => {
     }
 });
 
-// نظام خيارات الروم الصوتي (نظام الكتم وفك الكتم لأعضاء الروم كما في الصورة الأصلية)
 client.on('voiceStateUpdate', async (oldState, newState) => {
     try {
-        // إذا دخل العضو روم صوتي جديد
         if (!oldState.channelId && newState.channelId) {
             const member = newState.member;
             if (member.user.bot) return;
@@ -139,7 +134,6 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
                     .setEmoji('🔊')
             );
 
-            // إرسال الرسالة في نفس الروم الصوتي إذا كان يدعم الشات أو في قناة اللوج/الشات المخصص
             if (channel.isTextBased && channel.send) {
                 await channel.send({ embeds: [embed], components: [row] }).catch(() => {});
             }
@@ -201,15 +195,17 @@ client.on('interactionCreate', async interaction => {
         if (interaction.isButton()) {
             const customId = interaction.customId;
 
-            // أزرار كتم وفك كتم أعضاء الروم الصوتي (المطابقة لصورتك)
             if (customId.startsWith('mute_room_members_') || customId.startsWith('unmute_room_members_')) {
+                // استجابة فورية لمنع خطأ didn't respond in time
+                await interaction.deferReply({ ephemeral: true });
+
                 const parts = customId.split('_');
                 const channelId = parts[parts.length - 1];
                 const shouldMute = customId.startsWith('mute_room_members_');
 
                 const voiceChannel = await guild.channels.fetch(channelId).catch(() => null);
                 if (!voiceChannel || voiceChannel.type !== ChannelType.GuildVoice) {
-                    return interaction.reply({ content: '❌ الروم الصوتي غير موجود أو تم إغلاقه!', ephemeral: true });
+                    return interaction.editReply({ content: '❌ الروم الصوتي غير موجود أو تم إغلاقه!' });
                 }
 
                 let count = 0;
@@ -220,9 +216,8 @@ client.on('interactionCreate', async interaction => {
                     }
                 }
 
-                return interaction.reply({ 
-                    content: `✅ تم ${shouldMute ? 'كتم' : 'فك الكتم عن'} (${count}) عضواً في روم **${voiceChannel.name}**.`, 
-                    ephemeral: true 
+                return interaction.editReply({ 
+                    content: `✅ تم ${shouldMute ? 'كتم' : 'فك الكتم عن'} (${count}) عضواً في روم **${voiceChannel.name}**.` 
                 });
             }
 
