@@ -704,16 +704,18 @@ client.on('interactionCreate', async interaction => {
                     .setFooter({ text: guild.name, iconURL: guild.iconURL() });
 
                 let successCount = 0;
-                const membersWithRole = targetRole.members.filter(m => !m.user.bot);
+                const membersWithRole = Array.from(targetRole.members.filter(m => !m.user.bot).values());
 
-                for (const [memberId, member] of membersWithRole) {
+                // إرسال الرسائل مع مهلة (Delay) لضمان وصولها لكل الأعضاء بدون سبام ديسكورد
+                for (const member of membersWithRole) {
                     try {
                         await member.send({ embeds: [roleEmbed] });
                         successCount++;
+                        await new Promise(resolve => setTimeout(resolve, 500)); // تأخير نصف ثانية بين كل عضو
                     } catch (err) {}
                 }
 
-                return interaction.editReply(`✅ تم الإرسال بنجاح إلى **${successCount}** عضو يحملون رول **${targetRole.name}**!`);
+                return interaction.editReply(`✅ تم الإرسال بنجاح إلى **${successCount}** من أصل **${membersWithRole.length}** عضو يحملون رول **${targetRole.name}**!`);
             }
 
             if (customId.startsWith('modal_user_msg_') || customId.startsWith('modal_id_user_')) {
