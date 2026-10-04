@@ -1,5 +1,5 @@
 const express = require('express');
-const { Client, GatewayIntentBits, Partials, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, RoleSelectMenuBuilder, UserSelectMenuBuilder, ChannelSelectMenuBuilder, ChannelType, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, RoleSelectMenuBuilder, UserSelectMenuBuilder, ChannelSelectMenuBuilder, ChannelType, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -50,7 +50,7 @@ client.once('ready', async () => {
             } catch (e) {}
         };
 
-        // لوحة التحكم الرئيسية (الإدارة العامة مع أزرار الميوت والصوت)
+        // لوحة التحكم الرئيسية (بالأزرار القديمة والبسيطة للميوت)
         const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
         if (logChannel && logChannel.isTextBased()) {
             await cleanBotMessages(logChannel);
@@ -71,6 +71,7 @@ client.once('ready', async () => {
                 new ButtonBuilder().setCustomId('unmute_all_voice_btn').setLabel('🔊 فك الميوت عن الروم الصوتي').setStyle(ButtonStyle.Success)
             ));
 
+            // الأزرار القديمة المباشرة تماماً
             rows.push(new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('mute_specific_member_btn').setLabel('🎤 ميوت لعضو محدد بالروم').setStyle(ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId('unmute_specific_member_btn').setLabel('🔈 فك الميوت عن عضو محدد').setStyle(ButtonStyle.Secondary)
@@ -169,7 +170,6 @@ client.on('interactionCreate', async interaction => {
         if (interaction.isButton()) {
             const customId = interaction.customId;
 
-            // أزرار الميوت الصوتي
             if (customId === 'mute_all_voice_btn' || customId === 'unmute_all_voice_btn') {
                 const member = await guild.members.fetch(interaction.user.id).catch(() => null);
                 if (!member || !member.voice.channel) {
@@ -187,6 +187,7 @@ client.on('interactionCreate', async interaction => {
                 return interaction.reply({ content: `✅ تم ${shouldMute ? 'عمل ميوت' : 'فك الميوت عن'} (${count}) عضواً في روم **${channel.name}**.`, ephemeral: true });
             }
 
+            // النظام القديم المباشر لاختيار العضو عبر قائمة منسوحة مبسطة
             if (customId === 'mute_specific_member_btn' || customId === 'unmute_specific_member_btn') {
                 const member = await guild.members.fetch(interaction.user.id).catch(() => null);
                 if (!member || !member.voice.channel) {
@@ -197,7 +198,7 @@ client.on('interactionCreate', async interaction => {
 
                 const selectMenu = new UserSelectMenuBuilder()
                     .setCustomId(`voice_target_user_${isMute ? 'mute' : 'unmute'}`)
-                    .setPlaceholder('اختر العضو المستهدف من الروم الصوتي...')
+                    .setPlaceholder('اختر العضو المستهدف...')
                     .setMinValues(1)
                     .setMaxValues(1);
 
@@ -570,7 +571,7 @@ client.on('interactionCreate', async interaction => {
 
                     if (inboxChannel && inboxChannel.isTextBased()) {
                         const logEmbed = new EmbedBuilder()
-                            .setTitle('✉️️ رسالة إدارية خاصة تم إرسالها لعضو')
+                            .setTitle('✉ رسالة إدارية خاصة تم إرسالها لعضو')
                             .addFields(
                                 { name: '👤 المرسل', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
                                 { name: '🏷️ الصفة', value: `\`${customSenderInfo.label}\``, inline: true },
