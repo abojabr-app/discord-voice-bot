@@ -1,5 +1,5 @@
 const express = require('express');
-const { Client, GatewayIntentBits, Partials, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, RoleSelectMenuBuilder, UserSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, RoleSelectMenuBuilder, UserSelectMenuBuilder, ChannelSelectMenuBuilder, ChannelType, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -99,7 +99,8 @@ client.once('ready', async () => {
             ));
 
             rows.push(new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('change_bot_avatar_btn').setLabel('تغيير صورة البوت').setStyle(ButtonStyle.Success)
+                new ButtonBuilder().setCustomId('send_to_server_channel_btn').setLabel('📢 إرسال رسالة لروم في السيرفر').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('change_bot_avatar_btn').setLabel('تغيير صورة البوت').setStyle(ButtonStyle.Secondary)
             ));
 
             await logChannel.send({ embeds: [embed], components: rows });
@@ -182,6 +183,38 @@ client.on('interactionCreate', async interaction => {
 
         if (interaction.isButton()) {
             const customId = interaction.customId;
+
+            if (customId === 'send_to_server_channel_btn') {
+                const channelSelect = new ChannelSelectMenuBuilder()
+                    .setCustomId('direct_channel_select')
+                    .setPlaceholder('📂 ابحث عن الروم بالاسم...')
+                    .addChannelTypes(ChannelType.GuildText)
+                    .setMinValues(1)
+                    .setMaxValues(1);
+
+                const manualButton = new ButtonBuilder()
+                    .setCustomId('manual_channel_btn')
+                    .setLabel('إذا لم تجد الروم اضغط هنا (بالآيدي)')
+                    .setStyle(ButtonStyle.Secondary);
+
+                return await interaction.reply({ 
+                    content: '👇 اختر الروم من القائمة، أو اضغط الزر الأسفل للإدخال اليدوي بالآيدي:', 
+                    components: [new ActionRowBuilder().addComponents(channelSelect), new ActionRowBuilder().addComponents(manualButton)], 
+                    ephemeral: true 
+                });
+            }
+
+            if (customId === 'manual_channel_btn') {
+                const modal = new ModalBuilder()
+                    .setCustomId('modal_id_channel')
+                    .setTitle('إرسال رسالة لروم (بالآيدي اليدوي)');
+
+                const idInput = new TextInputBuilder().setCustomId('target_id').setLabel('آيدي الروم (Channel ID):').setStyle(TextInputStyle.Short).setRequired(true);
+                const msgInput = new TextInputBuilder().setCustomId('target_msg').setLabel('محتوى الرسالة:').setStyle(TextInputStyle.Paragraph).setRequired(true);
+
+                modal.addComponents(new ActionRowBuilder().addComponents(idInput), new ActionRowBuilder().addComponents(msgInput));
+                return await interaction.showModal(modal);
+            }
 
             if (customId.startsWith('reply_user_modal_')) {
                 const userId = customId.replace('reply_user_modal_', '');
@@ -289,6 +322,17 @@ client.on('interactionCreate', async interaction => {
             }
         }
 
+        if (interaction.isChannelSelectMenu() && interaction.customId === 'direct_channel_select') {
+            const selectedChannelId = interaction.values[0];
+            const modal = new ModalBuilder()
+                .setCustomId(`modal_channel_msg_${selectedChannelId}`)
+                .setTitle('اكتب رسالة الروم');
+
+            const messageInput = new TextInputBuilder().setCustomId('channel_message_text').setLabel('محتوى الرسالة:').setStyle(TextInputStyle.Paragraph).setRequired(true);
+            modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
+            return await interaction.showModal(modal);
+        }
+
         if (interaction.isRoleSelectMenu()) {
             let suffix = 'admin';
             if (interaction.customId.includes('_manager')) suffix = 'manager';
@@ -322,6 +366,47 @@ client.on('interactionCreate', async interaction => {
         if (interaction.isModalSubmit()) {
             const customId = interaction.customId;
 
+            // معالجة رسائل الرومات (سواء من القائمة أو اليدوي بالآيدي)
+            if (customId.startsWith('modal_channel_msg_') || customId === 'modal_id_channel') {
+                let targetChannelId, channelMsg;
+
+                if (customId.startsWith('modal_channel_msg_')) {
+                    targetChannelId = customId.replace('modal_channel_msg_', '');
+                    channelMsg = interaction.fields.getTextInputValue('channel_message_text');
+                } else {
+                    targetChannelId = interaction.fields.getTextInputValue('target_id').trim();
+                    channelMsg = interaction.fields.getTextInputValue('target_msg');
+                }
+
+                await interaction.deferReply({ ephemeral: true });
+                try {
+                    const targetChannel = await guild.channels.fetch(targetChannelId).catch(() => null);
+                    if (!targetChannel || !targetChannel.isTextBased()) {
+                        return interaction.editReply('❌ عذراً، لم يتم العثور على الروم أو أنه ليس روم كتابي.');
+                    }
+
+                    await targetChannel.send({ content: channelMsg });
+
+                    if (inboxChannel && inboxChannel.isTextBased()) {
+                        const logEmbed = new EmbedBuilder()
+                            .setTitle('📢 رسالة إدارية تم إرسالها لروم في السيرفر')
+                            .addFields(
+                                { name: '👤 المرسل', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
+                                { name: '🏷️ الصفة', value: `\`إداري\``, inline: true },
+                                { name: '📂 الروم المستهدف', value: `${targetChannel} (\`${targetChannel.id}\`)`, inline: true },
+                                { name: '💬 محتوى الرسالة', value: channelMsg, inline: false }
+                            )
+                            .setColor(0x57F287)
+                            .setTimestamp();
+                        await inboxChannel.send({ embeds: [logEmbed] }).catch(() => {});
+                    }
+
+                    return interaction.editReply(`✅ تم إرسال الرسالة بنجاح إلى الروم ${targetChannel}!`);
+                } catch (err) {
+                    return interaction.editReply('❌ فشل إرسال الرسالة، تأكد من صحة آيدي الروم وأن البوت يملك صلاحية الإرسال هناك.');
+                }
+            }
+
             if (customId === 'modal_change_avatar') {
                 const avatarUrl = interaction.fields.getTextInputValue('avatar_url').trim();
                 await interaction.deferReply({ ephemeral: true });
@@ -333,14 +418,12 @@ client.on('interactionCreate', async interaction => {
                 }
             }
 
-            // تحديد صصفة المرسل بناءً على الـ suffix (مدير / نائب / إداري)
             const getSenderRoleName = (type) => {
                 if (type === 'manager') return 'من المدير';
                 if (type === 'deputy') return 'من النائب';
                 return 'إداري';
             };
 
-            // 1. الرد المباشر على العضو
             if (customId.startsWith('modal_direct_reply_')) {
                 const userId = customId.replace('modal_direct_reply_', '');
                 const replyText = interaction.fields.getTextInputValue('reply_text');
@@ -359,7 +442,6 @@ client.on('interactionCreate', async interaction => {
                     await targetMember.send({ embeds: [replyEmbed] });
 
                     if (inboxChannel && inboxChannel.isTextBased()) {
-                        // تحديد الصصفة بناءً على مكان أو طريقة الإرسال (الافتراضي هنا إداري أو حسب الصلاحية)
                         let senderTypeLabel = 'إداري';
                         if (interaction.channelId === MANAGER_ROOM_ID) senderTypeLabel = 'من المدير';
                         if (interaction.channelId === DEPUTY_ROOM_ID) senderTypeLabel = 'من النائب';
@@ -370,7 +452,7 @@ client.on('interactionCreate', async interaction => {
                                 { name: '👤 المرسل', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
                                 { name: '🏷️ الصفة', value: `\`${senderTypeLabel}\``, inline: true },
                                 { name: '👥 العضو المستهدف', value: `${targetMember} (\`${targetMember.user.tag}\`)`, inline: true },
-                                { name: '💬 محتوى الرسالة', value: replyText, inline: false }
+                                { name: '💬 محتوى الرد', value: replyText, inline: false }
                             )
                             .setColor(0x57F287)
                             .setTimestamp();
@@ -383,13 +465,12 @@ client.on('interactionCreate', async interaction => {
                 }
             }
 
-            // 2. رسائل الرولات
             if (customId.startsWith('modal_role_msg_') || customId.startsWith('modal_id_role_')) {
                 let type, roleId, messageText;
 
                 if (customId.startsWith('modal_role_msg_')) {
                     const parts = customId.split('_');
-                    type = parts[3]; // admin, manager, deputy
+                    type = parts[3];
                     roleId = parts[4];
                     messageText = interaction.fields.getTextInputValue('role_message_text');
                 } else {
@@ -439,13 +520,12 @@ client.on('interactionCreate', async interaction => {
                 return interaction.editReply(`✅ تم الإرسال بنجاح إلى **${successCount}** عضو يحملون رول **${targetRole.name}**!`);
             }
 
-            // 3. الرسائل الشخصية للأعضاء
             if (customId.startsWith('modal_user_msg_') || customId.startsWith('modal_id_user_')) {
                 let type, userId, messageText;
 
                 if (customId.startsWith('modal_user_msg_')) {
                     const parts = customId.split('_');
-                    type = parts[3]; // admin, manager, deputy
+                    type = parts[3];
                     userId = parts[4];
                     messageText = interaction.fields.getTextInputValue('user_message_text');
                 } else {
