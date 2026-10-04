@@ -50,13 +50,13 @@ client.once('ready', async () => {
             } catch (e) {}
         };
 
-        // لوحة التحكم الرئيسية (الإدارة العامة)
+        // لوحة التحكم الرئيسية (الإدارة العامة مع أزرار الميوت والصوت)
         const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
         if (logChannel && logChannel.isTextBased()) {
             await cleanBotMessages(logChannel);
             const embed = new EmbedBuilder()
                 .setTitle('⚖️ لوحة التحكم الإدارية الرسمية')
-                .setDescription('مرحباً بك في لوحة تحكم السيرفر الرسمية.\nاستخدم الأزرار أدناه للإرسال الموجه والتوجيهات الرسمية:')
+                .setDescription('مرحباً بك في لوحة تحكم السيرفر الرسمية.\nاستخدم الأزرار أدناه للإرسال الموجه والتوجيهات والتحكم الصوتي:')
                 .setColor(0x2f3136);
 
             const rows = [];
@@ -66,7 +66,14 @@ client.once('ready', async () => {
             ));
 
             rows.push(new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('send_to_server_channel_btn').setLabel('📂 إرسال رسالة لروم في السيرفر').setStyle(ButtonStyle.Success)
+                new ButtonBuilder().setCustomId('send_to_server_channel_btn').setLabel('📂 إرسال رسالة لروم في السيرفر').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('mute_all_voice_btn').setLabel('🔇 ميوت لكل الروم الصوتي').setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId('unmute_all_voice_btn').setLabel('🔊 فك الميوت عن الروم الصوتي').setStyle(ButtonStyle.Success)
+            ));
+
+            rows.push(new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('mute_specific_member_btn').setLabel('🎤 ميوت لعضو محدد بالروم').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('unmute_specific_member_btn').setLabel('🔈 فك الميوت عن عضو محدد').setStyle(ButtonStyle.Secondary)
             ));
 
             await logChannel.send({ embeds: [embed], components: rows });
@@ -149,7 +156,6 @@ client.on('interactionCreate', async interaction => {
 
         const inboxChannel = await guild.channels.fetch(INBOX_CHANNEL_ID).catch(() => {});
 
-        // تحديد اسم ووصف المرسل بناءً على الروم أو الزر المستخدم
         const getSenderInfo = (int) => {
             if (int.channelId === MANAGER_ROOM_ID || int.customId.includes('manager')) {
                 return { title: 'توجيه رسمي من مدير القروب', label: 'مدير القروب' };
@@ -162,6 +168,41 @@ client.on('interactionCreate', async interaction => {
 
         if (interaction.isButton()) {
             const customId = interaction.customId;
+
+            // أزرار الميوت الصوتي
+            if (customId === 'mute_all_voice_btn' || customId === 'unmute_all_voice_btn') {
+                const member = await guild.members.fetch(interaction.user.id).catch(() => null);
+                if (!member || !member.voice.channel) {
+                    return interaction.reply({ content: '❌ يجب أن تكون متصلاً بروم صوتي لتنفيذ هذا الأمر!', ephemeral: true });
+                }
+                const channel = member.voice.channel;
+                const shouldMute = customId === 'mute_all_voice_btn';
+                let count = 0;
+                for (const [, mem] of channel.members) {
+                    if (!mem.user.bot) {
+                        await mem.voice.setMute(shouldMute).catch(() => {});
+                        count++;
+                    }
+                }
+                return interaction.reply({ content: `✅ تم ${shouldMute ? 'عمل ميوت' : 'فك الميوت عن'} (${count}) عضواً في روم **${channel.name}**.`, ephemeral: true });
+            }
+
+            if (customId === 'mute_specific_member_btn' || customId === 'unmute_specific_member_btn') {
+                const member = await guild.members.fetch(interaction.user.id).catch(() => null);
+                if (!member || !member.voice.channel) {
+                    return interaction.reply({ content: '❌ يجب أن تكون متصلاً بروم صوتي لتنفيذ هذا الأمر!', ephemeral: true });
+                }
+                const channel = member.voice.channel;
+                const isMute = customId === 'mute_specific_member_btn';
+
+                const selectMenu = new UserSelectMenuBuilder()
+                    .setCustomId(`voice_target_user_${isMute ? 'mute' : 'unmute'}`)
+                    .setPlaceholder('اختر العضو المستهدف من الروم الصوتي...')
+                    .setMinValues(1)
+                    .setMaxValues(1);
+
+                return interaction.reply({ content: '👇 اختر العضو:', components: [new ActionRowBuilder().addComponents(selectMenu)], ephemeral: true });
+            }
 
             if (customId === 'send_to_server_channel_btn') {
                 const channelSelect = new ChannelSelectMenuBuilder()
@@ -290,6 +331,19 @@ client.on('interactionCreate', async interaction => {
             }
         }
 
+        if (interaction.isUserSelectMenu() && interaction.customId.startsWith('voice_target_user_')) {
+            const isMute = interaction.customId.includes('_mute');
+            const targetUserId = interaction.values[0];
+            const targetMember = await guild.members.fetch(targetUserId).catch(() => null);
+
+            if (!targetMember || !targetMember.voice.channel) {
+                return interaction.reply({ content: '❌ العضو غير متصل بروم صوتي حالياً!', ephemeral: true });
+            }
+
+            await targetMember.voice.setMute(isMute).catch(() => {});
+            return interaction.reply({ content: `✅ تم ${isMute ? 'عمل ميوت' : 'فك الميوت عن'} العضو **${targetMember.user.tag}** في الروم الصوتي.`, ephemeral: true });
+        }
+
         if (interaction.isChannelSelectMenu() && interaction.customId === 'direct_channel_select') {
             const selectedChannelId = interaction.values[0];
             const modal = new ModalBuilder()
@@ -316,7 +370,7 @@ client.on('interactionCreate', async interaction => {
             return await interaction.showModal(modal);
         }
 
-        if (interaction.isUserSelectMenu()) {
+        if (interaction.isUserSelectMenu() && !interaction.customId.startsWith('voice_target_user_')) {
             let suffix = 'admin';
             if (interaction.customId.includes('_manager')) suffix = 'manager';
             if (interaction.customId.includes('_deputy')) suffix = 'deputy';
@@ -335,7 +389,6 @@ client.on('interactionCreate', async interaction => {
             const customId = interaction.customId;
             const senderInfo = getSenderInfo(interaction);
 
-            // معالجة رسائل الرومات العامة
             if (customId.startsWith('modal_channel_msg_') || customId === 'modal_id_channel') {
                 let targetChannelId, channelMsg;
 
@@ -382,7 +435,6 @@ client.on('interactionCreate', async interaction => {
                 }
             }
 
-            // معالجة الرد المباشر على الأعضاء بالخاص
             if (customId.startsWith('modal_direct_reply_')) {
                 const parts = customId.split('_');
                 const suffix = parts[3];
@@ -426,7 +478,6 @@ client.on('interactionCreate', async interaction => {
                 }
             }
 
-            // معالجة إرسال الرسائل للرولات
             if (customId.startsWith('modal_role_msg_') || customId.startsWith('modal_id_role_')) {
                 let type, roleId, messageText;
 
@@ -485,7 +536,6 @@ client.on('interactionCreate', async interaction => {
                 return interaction.editReply(`✅ تم الإرسال بنجاح إلى **${successCount}** عضو يحملون رول **${targetRole.name}**!`);
             }
 
-            // معالجة إرسال الرسائل للأعضاء بالخاص
             if (customId.startsWith('modal_user_msg_') || customId.startsWith('modal_id_user_')) {
                 let type, userId, messageText;
 
@@ -520,7 +570,7 @@ client.on('interactionCreate', async interaction => {
 
                     if (inboxChannel && inboxChannel.isTextBased()) {
                         const logEmbed = new EmbedBuilder()
-                            .setTitle('✉️ رسالة إدارية خاصة تم إرسالها لعضو')
+                            .setTitle('✉️️ رسالة إدارية خاصة تم إرسالها لعضو')
                             .addFields(
                                 { name: '👤 المرسل', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
                                 { name: '🏷️ الصفة', value: `\`${customSenderInfo.label}\``, inline: true },
