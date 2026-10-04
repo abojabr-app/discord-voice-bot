@@ -91,7 +91,7 @@ client.once('ready', async () => {
         if (deputyChannel && deputyChannel.isTextBased()) {
             await cleanBotMessages(deputyChannel);
             const deputyEmbed = new EmbedBuilder()
-                .setTitle('🛡️️ لوحة إدارة نائب المدير الرسمية')
+                .setTitle('🛡️ لوحة إدارة نائب المدير الرسمية')
                 .setDescription('مرحباً بك يا نائب المدير. يمكنك من هنا إرسال التوجيهات والإشعارات الرسمية للأعضاء أو الرولات:')
                 .setColor(0x3498DB);
 
@@ -117,7 +117,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
             
             const embed = new EmbedBuilder()
                 .setTitle(`🎛️ خيارات الروم الصوتي: 🔊 ${channel.name}`)
-                .setDescription('تم دخول أعضاء إلى هذا الروم. استخدم الأزراّر أدناه لكتم أو فك الكتم عن أعضاء الروم:')
+                .setDescription('تم دخول أعضاء إلى هذا الروم. استخدم الأزرار أدناه لكتم أو فك الكتم عن أعضاء الروم:')
                 .setColor(0x2f3136)
                 .setTimestamp();
 
@@ -196,8 +196,7 @@ client.on('interactionCreate', async interaction => {
             const customId = interaction.customId;
 
             if (customId.startsWith('mute_room_members_') || customId.startsWith('unmute_room_members_')) {
-                // استجابة فورية لمنع خطأ didn't respond in time
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
                 const parts = customId.split('_');
                 const channelId = parts[parts.length - 1];
@@ -205,7 +204,7 @@ client.on('interactionCreate', async interaction => {
 
                 const voiceChannel = await guild.channels.fetch(channelId).catch(() => null);
                 if (!voiceChannel || voiceChannel.type !== ChannelType.GuildVoice) {
-                    return interaction.editReply({ content: '❌ الروم الصوتي غير موجود أو تم إغلاقه!' });
+                    return interaction.editReply({ content: '❌ الروم الصوتي غير موجود أو تم إغلاقه!' }).catch(() => {});
                 }
 
                 let count = 0;
@@ -218,7 +217,7 @@ client.on('interactionCreate', async interaction => {
 
                 return interaction.editReply({ 
                     content: `✅ تم ${shouldMute ? 'كتم' : 'فك الكتم عن'} (${count}) عضواً في روم **${voiceChannel.name}**.` 
-                });
+                }).catch(() => {});
             }
 
             if (customId === 'send_to_server_channel_btn') {
@@ -527,7 +526,7 @@ client.on('interactionCreate', async interaction => {
                         .setTitle('📢 رسالة جماعية تم إرسالها لرول')
                         .addFields(
                             { name: '👤 المرسل', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
-                            { name: '🏷️ الصفة', value: `\`${customSenderInfo.label}\``, inline: true },
+                            { name: '🏷️️ الصفة', value: `\`${customSenderInfo.label}\``, inline: true },
                             { name: '🎯 الرول المستهدف', value: `${targetRole.name} (\`${targetRole.id}\`)`, inline: true },
                             { name: '📊 نسبة الوصول', value: `تم الإرسال بنجاح إلى ${successCount} من ${membersWithRole.length} عضو`, inline: false },
                             { name: '💬 محتوى الرسالة', value: messageText, inline: false }
