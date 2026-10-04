@@ -30,6 +30,9 @@ const INBOX_CHANNEL_ID = '1555355545504850103';
 const MANAGER_ROOM_ID = '1555573365748531251';
 const DEPUTY_ROOM_ID = '1555941998819811439';
 
+const botMutedMembers = new Set();
+const voiceControlMessages = new Map();
+
 client.once('ready', async () => {
     console.log(`Bot logged in as ${client.user.tag}!`);
     try {
@@ -69,10 +72,9 @@ client.once('ready', async () => {
                 new ButtonBuilder().setCustomId('send_to_server_channel_btn').setLabel('📂 إرسال رسالة لروم في السيرفر').setStyle(ButtonStyle.Success)
             ));
 
-            // أزرار الميوت في اللوحة العامة (صوتي وكتابي)
+            // زر الميوت الصوتي فقط بناءً على الكود القديم
             rows.push(new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('mute_voice_btn').setLabel('🔇 ميوت صوتي لعضو').setStyle(ButtonStyle.Danger),
-                new ButtonBuilder().setCustomId('mute_text_btn').setLabel('🔒 ميوت كتابي لعضو').setStyle(ButtonStyle.Danger)
+                new ButtonBuilder().setCustomId('mute_voice_btn').setLabel('🔇 ميوت صوتي لعضو').setStyle(ButtonStyle.Danger)
             ));
 
             await logChannel.send({ embeds: [embed], components: rows });
@@ -116,8 +118,55 @@ client.once('ready', async () => {
     }
 });
 
+client.on('voiceStateUpdate', async (oldState, newState) => {
+    const guild = newState.guild || oldState.guild;
+    if (guild.id !== GUILD_ID) return;
+
+    const memberId = newState.id;
+
+    if (botMutedMembers.has(memberId) && oldState.serverMute && !newState.serverMute) {
+        if (newState.member && newState.member.voice) {
+            await newState.member.voice.setMute(true).catch(() => {});
+        }
+    }
+
+    const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
+    if (!logChannel || !logChannel.isTextBased()) return;
+
+    if (oldState.channel && oldState.channel.members.size === 0) {
+        if (voiceControlMessages.has(oldState.channel.id)) {
+            try {
+                const msg = await logChannel.messages.fetch(voiceControlMessages.get(oldState.channel.id));
+                if (msg) await msg.delete();
+            } catch (e) {}
+            voiceControlMessages.delete(oldState.channel.id);
+        }
+    }
+
+    if (newState.channel && newState.channel.members.size > 0) {
+        const vc = newState.channel;
+        if (!voiceControlMessages.has(vc.id)) {
+            const embed = new EmbedBuilder()
+                .setTitle(`🎛️ خيارات الروم الصوتي: ${vc.name}`)
+                .setDescription(`تم دخول أعضاء إلى هذا الروم. استخدم الأزرار أدناه لكتم أو فك الكتم عن أعضاء الروم:`)
+                .setColor(0x2f3136)
+                .setTimestamp();
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`mute_room_${vc.id}`).setLabel('🔇 كتم أعضاء الروم').setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId(`unmute_room_${vc.id}`).setLabel('🔊 فك الكتم').setStyle(ButtonStyle.Success)
+            );
+
+            try {
+                const sentMsg = await logChannel.send({ embeds: [embed], components: [row] });
+                voiceControlMessages.set(vc.id, sentMsg.id);
+            } catch (err) {}
+        }
+    }
+});
+
 client.on('messageCreate', async message => {
-    const guild = client.guilds.cache.get(GUILD_ID);
+    const guild = message.guild;
     if (!guild) return;
 
     if (!message.guild && !message.author.bot) {
@@ -155,7 +204,6 @@ client.on('interactionCreate', async interaction => {
 
         const inboxChannel = await guild.channels.fetch(INBOX_CHANNEL_ID).catch(() => {});
 
-        // تحديد اسم ووصف المرسل بناءً على الروم أو الزر المستخدم
         const getSenderInfo = (int) => {
             if (int.channelId === MANAGER_ROOM_ID || int.customId.includes('manager')) {
                 return { title: 'توجيه رسمي من مدير القروب', label: 'مدير القروب' };
@@ -169,11 +217,10 @@ client.on('interactionCreate', async interaction => {
         if (interaction.isButton()) {
             const customId = interaction.customId;
 
-            // أزرار الميوت (الصوتي والكتابي)
-            if (customId === 'mute_voice_btn' || customId === 'mute_text_btn') {
+            if (customId === 'mute_voice_btn') {
                 const userSelect = new UserSelectMenuBuilder()
-                    .setCustomId(customId === 'mute_voice_btn' ? 'select_mute_voice' : 'select_mute_text')
-                    .setPlaceholder('👤 اختر العضو لتطبيق الميوت عليه...')
+                    .setCustomId('select_mute_voice')
+                    .setPlaceholder('👤 اختر العضو لتطبيق الميوت الصوتي عليه...')
                     .setMinValues(1)
                     .setMaxValues(1);
 
@@ -182,6 +229,37 @@ client.on('interactionCreate', async interaction => {
                     components: [new ActionRowBuilder().addComponents(userSelect)],
                     ephemeral: true
                 });
+            }
+
+            if (customId.startsWith('mute_room_') || customId.startsWith('unmute_room_')) {
+                const parts = customId.split('_');
+                const action = parts[0]; 
+                const channelId = parts[2];
+
+                await interaction.deferUpdate();
+
+                const channel = await guild.channels.fetch(channelId).catch(() => {});
+                if (!channel || !channel.isVoiceBased()) return;
+
+                const shouldMute = (action === 'mute');
+                const promises = [];
+
+                channel.members.forEach(member => {
+                    if (member.voice) {
+                        if (shouldMute) {
+                            botMutedMembers.add(member.id);
+                            promises.push(member.voice.setMute(true).catch(() => {}));
+                        } else {
+                            if (botMutedMembers.has(member.id)) {
+                                botMutedMembers.delete(member.id);
+                                promises.push(member.voice.setMute(false).catch(() => {}));
+                            }
+                        }
+                    }
+                });
+
+                await Promise.all(promises);
+                return;
             }
 
             if (customId === 'send_to_server_channel_btn') {
@@ -338,28 +416,20 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.isUserSelectMenu()) {
-            // معالجة اختيار العضو للميوت الصوتي أو الكتابي
-            if (interaction.customId === 'select_mute_voice' || interaction.customId === 'select_mute_text') {
+            if (interaction.customId === 'select_mute_voice') {
                 const targetUserId = interaction.values[0];
-                const isVoice = interaction.customId === 'select_mute_voice';
 
                 await interaction.deferReply({ ephemeral: true });
                 try {
                     const member = await guild.members.fetch(targetUserId);
                     if (!member) return interaction.editReply('❌ لم يتم العثور على هذا العضو في السيرفر.');
 
-                    if (isVoice) {
-                        if (!member.voice.channel) {
-                            return interaction.editReply('❌ العضو ليس متصلاً بأي روم صوتي حالياً!');
-                        }
-                        await member.voice.setMute(true, `بواسطة الإداري: ${interaction.user.tag}`);
-                        return interaction.editReply(`✅ تم إعطاء الميوت الصوتي بنجاح للعضو **${member.user.tag}**.`);
-                    } else {
-                        // الميوت الكتابي (إعطاء رول الميوت أو سحب الصلاحيات - كمثال هنا سنقوم بالبحث عن رول الميوت أو تطبيق المنع)
-                        // ملاحظة: تأكد من وجود رول Muted في السيرفر أو تعديل صلوات الرومات، هنا سنبحث عن رول باسم Muted أو ننشئه إن أمكن، أو نطبق التايم آوت Timeout
-                        await member.timeout(24 * 60 * 60 * 1000, `ميوت كتابي بواسطة الإداري: ${interaction.user.tag}`);
-                        return interaction.editReply(`✅ تم إعطاء الميوت الكتابي (Timeout) بنجاح للعضو **${member.user.tag}** لمدة 24 ساعة.`);
+                    if (!member.voice.channel) {
+                        return interaction.editReply('❌ العضو ليس متصلاً بأي روم صوتي حالياً!');
                     }
+                    botMutedMembers.add(member.id);
+                    await member.voice.setMute(true, `بواسطة الإداري: ${interaction.user.tag}`);
+                    return interaction.editReply(`✅ تم إعطاء الميوت الصوتي بنجاح للعضو **${member.user.tag}** وحمايته من فك الميوت.`);
                 } catch (err) {
                     console.error(err);
                     return interaction.editReply('❌ فشل تنفيذ الميوت، تأكد من صلاحيات البوت الرتبية.');
@@ -384,7 +454,6 @@ client.on('interactionCreate', async interaction => {
             const customId = interaction.customId;
             const senderInfo = getSenderInfo(interaction);
 
-            // معالجة رسائل الرومات العامة
             if (customId.startsWith('modal_channel_msg_') || customId === 'modal_id_channel') {
                 let targetChannelId, channelMsg;
 
@@ -431,7 +500,6 @@ client.on('interactionCreate', async interaction => {
                 }
             }
 
-            // معالجة الرد المباشر على الأعضاء بالخاص
             if (customId.startsWith('modal_direct_reply_')) {
                 const parts = customId.split('_');
                 const suffix = parts[3];
@@ -475,7 +543,6 @@ client.on('interactionCreate', async interaction => {
                 }
             }
 
-            // معالجة إرسال الرسائل للرولات
             if (customId.startsWith('modal_role_msg_') || customId.startsWith('modal_id_role_')) {
                 let type, roleId, messageText;
 
@@ -534,7 +601,6 @@ client.on('interactionCreate', async interaction => {
                 return interaction.editReply(`✅ تم الإرسال بنجاح إلى **${successCount}** عضو يحملون رول **${targetRole.name}**!`);
             }
 
-            // معالجة إرسال الرسائل للأعضاء بالخاص
             if (customId.startsWith('modal_user_msg_') || customId.startsWith('modal_id_user_')) {
                 let type, userId, messageText;
 
