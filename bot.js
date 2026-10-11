@@ -30,6 +30,15 @@ const INBOX_CHANNEL_ID = '1555355545504850103';
 const MANAGER_ROOM_ID = '1555573365748531251';
 const DEPUTY_ROOM_ID = '1555941998819811439';
 
+// جدول الرومات الخاصة المحدث بآيدياتك المطلوبة
+const SPECIAL_ROOMS = {
+    '1329454808553357312': '890351885339480115',
+    '1555941900773498951': '1200448943365034036',
+    '1431905620230930473': '1218664301729026254',
+    '1511922936297160834': '713105913334071358',
+    '1527063216860172429': '1173308991619743865'
+};
+
 const voiceControlMessages = new Map();
 
 client.once('ready', async () => {
@@ -52,7 +61,7 @@ client.once('ready', async () => {
             } catch (e) {}
         };
 
-        // لوحة التحكم الرئيسية (الإدارة العامة) مطابقة للصورة تماماً
+        // لوحة التحكم الرئيسية
         const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
         if (logChannel && logChannel.isTextBased()) {
             await cleanBotMessages(logChannel);
@@ -74,7 +83,7 @@ client.once('ready', async () => {
             await logChannel.send({ embeds: [embed], components: rows });
         }
 
-        // لوحة إدارة القروب (المدير)
+        // لوحة إدارة القروب
         const managerChannel = await guild.channels.fetch(MANAGER_ROOM_ID).catch(() => {});
         if (managerChannel && managerChannel.isTextBased()) {
             await cleanBotMessages(managerChannel);
@@ -91,7 +100,7 @@ client.once('ready', async () => {
             await managerChannel.send({ embeds: [managerEmbed], components: [managerRow] });
         }
 
-        // لوحة إدارة نائب المدير
+        // لوحة نائب المدير
         const deputyChannel = await guild.channels.fetch(DEPUTY_ROOM_ID).catch(() => {});
         if (deputyChannel && deputyChannel.isTextBased()) {
             await cleanBotMessages(deputyChannel);
@@ -112,9 +121,42 @@ client.once('ready', async () => {
     }
 });
 
+// التعامل مع الدخول للرومات الصوتية والتنبيهات
 client.on('voiceStateUpdate', async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
     if (guild.id !== GUILD_ID) return;
+
+    const memberId = newState.id;
+
+    // تنبيه صاحب الروم عند دخول شخص جديد
+    if (newState.channel && SPECIAL_ROOMS[newState.channel.id]) {
+        const ownerId = SPECIAL_ROOMS[newState.channel.id];
+        
+        // لو اللي دخل مو صاحب الروم
+        if (memberId !== ownerId) {
+            const isOwnerInside = newState.channel.members.has(ownerId);
+            
+            // التنبيه يرسل فقط إذا صاحب الروم غير موجود بالروم
+            if (!isOwnerInside) {
+                try {
+                    const ownerMember = await guild.members.fetch(ownerId).catch(() => null);
+                    if (ownerMember) {
+                        const alertEmbed = new EmbedBuilder()
+                            .setTitle('🚨 تنبيه: شخص دخل رومك الخاص!')
+                            .setDescription(`دخل شخص إلى رومك الصوتي وصاحب الروم غير موجود داخله حالياً.`)
+                            .addFields(
+                                { name: '👤 الشخص الداخل', value: `${newState.member} (\`${newState.member.user.tag}\`)`, inline: true },
+                                { name: '🔊 اسم الروم', value: `${newState.channel.name}`, inline: true }
+                            )
+                            .setColor(0xED4245)
+                            .setTimestamp();
+
+                        await ownerMember.send({ embeds: [alertEmbed] }).catch(() => {});
+                    }
+                } catch (e) {}
+            }
+        }
+    }
 
     const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
     if (!logChannel || !logChannel.isTextBased()) return;
@@ -487,6 +529,7 @@ client.on('interactionCreate', async interaction => {
                 }
             }
 
+            // معالجة الإرسال للرول المحدثة بالكامل لمنع أي نقص وتفصيل النتيجة
             if (customId.startsWith('modal_role_msg_') || customId.startsWith('modal_id_role_')) {
                 let type, roleId, messageText;
 
@@ -510,6 +553,10 @@ client.on('interactionCreate', async interaction => {
                 const targetRole = await guild.roles.fetch(roleId).catch(() => null);
                 if (!targetRole) return interaction.editReply('❌ عذراً، لم يتم العثور على رول بهذا الآيدي.');
 
+                // جلب كافة أعضاء السيرفر لضمان وصول القائمة كاملة للرول
+                await guild.members.fetch();
+                const membersWithRole = Array.from(targetRole.members.filter(m => !m.user.bot).values());
+
                 const roleEmbed = new EmbedBuilder()
                     .setTitle(`📢 ${customSenderInfo.title}`)
                     .setDescription(messageText)
@@ -517,32 +564,42 @@ client.on('interactionCreate', async interaction => {
                     .setTimestamp();
 
                 let successCount = 0;
-                const membersWithRole = Array.from(targetRole.members.filter(m => !m.user.bot).values());
+                let failedUsers = [];
 
                 for (const member of membersWithRole) {
                     try {
                         await member.send({ embeds: [roleEmbed] });
                         successCount++;
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                    } catch (err) {}
+                        // تأخير بسيط لتجنب طرد البوت من حماية الديسكورد
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                    } catch (err) {
+                        failedUsers.push(`${member} (\`${member.user.tag}\` - ID: \`${member.id}\`)`);
+                    }
                 }
 
                 if (inboxChannel && inboxChannel.isTextBased()) {
+                    let deliveryStatus = "✅ تم الإرسال بنجاح لجميع الأعضاء بدون أخطاء.";
+                    if (failedUsers.length > 0) {
+                        deliveryStatus = `⚠️ لم يكتمل الإرسال للجميع!\n**عدد الذين لم تصلهم الرسالة (${failedUsers.length}):**\n` + failedUsers.join('\n') + `\n*(السبب الغالب: مقفلين الخاص DM)*`;
+                    }
+
                     const logEmbed = new EmbedBuilder()
-                        .setTitle('📢 رسالة جماعية تم إرسالها لرول')
+                        .setTitle('📢 تقرير إرسال رسالة جماعية لرول')
                         .addFields(
                             { name: '👤 المرسل', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
                             { name: '🏷️ الصفة', value: `\`${customSenderInfo.label}\``, inline: true },
                             { name: '🎯 الرول المستهدف', value: `${targetRole.name} (\`${targetRole.id}\`)`, inline: true },
-                            { name: '📊 نسبة الوصول', value: `تم الإرسال بنجاح إلى ${successCount} من ${membersWithRole.length} عضو`, inline: false },
+                            { name: '📊 نسبة الوصول', value: `تم الإرسال بنجاح إلى **${successCount}** من أصل **${membersWithRole.length}** عضو`, inline: false },
+                            { name: '📝 حالة التسليم التفصيلية', value: deliveryStatus, inline: false },
                             { name: '💬 محتوى الرسالة', value: messageText, inline: false }
                         )
-                        .setColor(0xFEE75C)
+                        .setColor(failedUsers.length === 0 ? 0x57F287 : 0xED4245)
                         .setTimestamp();
+
                     await inboxChannel.send({ embeds: [logEmbed] }).catch(() => {});
                 }
 
-                return interaction.editReply(`✅ تم الإرسال بنجاح إلى **${successCount}** عضو يحملون رول **${targetRole.name}**!`);
+                return interaction.editReply(`✅ تم إنهاء الإرسال! وصل بنجاح إلى **${successCount}** من **${membersWithRole.length}** عضو.`);
             }
 
             if (customId.startsWith('modal_user_msg_') || customId.startsWith('modal_id_user_')) {
