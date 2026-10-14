@@ -30,7 +30,15 @@ const INBOX_CHANNEL_ID = '1555355545504850103';
 const MANAGER_ROOM_ID = '1555573365748531251';
 const DEPUTY_ROOM_ID = '1555941998819811439';
 
-// جدول الرومات الخاصة المحدث بآيدياتك المطلوبة
+// رومات الانتخابات والقضاة الجديدة
+const PUBLIC_VOTE_ROOM = '1559895002769920010';
+const ADMIN_VOTE_ROOM = '1559895171938652290';
+
+// تخزين المرشحين والأصوات (Memory Storage)
+const candidatesList = []; // يحفظ { name, userId, votes: Set }
+const userVotedSet = new Set(); // أعضاء صوتوا مسبقاً
+
+// جدول الرومات الخاصة وأصحابها
 const SPECIAL_ROOMS = {
     '1329454808553357312': '890351885339480115',
     '1555941900773498951': '1200448943365034036',
@@ -61,7 +69,7 @@ client.once('ready', async () => {
             } catch (e) {}
         };
 
-        // لوحة التحكم الرئيسية
+        // 1. لوحة التحكم الرئيسية
         const logChannel = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => {});
         if (logChannel && logChannel.isTextBased()) {
             await cleanBotMessages(logChannel);
@@ -81,6 +89,41 @@ client.once('ready', async () => {
             ));
 
             await logChannel.send({ embeds: [embed], components: rows });
+        }
+
+        // 2. روم المسؤولين للانتخابات
+        const adminVoteChan = await guild.channels.fetch(ADMIN_VOTE_ROOM).catch(() => {});
+        if (adminVoteChan && adminVoteChan.isTextBased()) {
+            await cleanBotMessages(adminVoteChan);
+            const adminEmbed = new EmbedBuilder()
+                .setTitle('⚖️ وزارة العدل - لوحة إدارة المترشحين (خاص للمسؤولين)')
+                .setDescription('مرحباً بك في غرفة تحكم المسؤولين للانتخابات القضائية.\nيمكنك من هنا إضافة المتقدمين لمنصب القضاة ومتابعة عدد الأصوات السري لكل مرشح:')
+                .setColor(0x111111)
+                .setFooter({ text: 'وزارة العدل - قسم شؤون القضاء' });
+
+            const adminRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('add_candidate_modal_btn').setLabel('➕ إضافة مرشح جديد للقضاة').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('view_votes_results_btn').setLabel('📊 عرض الأصوات والنتائج (سرية)').setStyle(ButtonStyle.Secondary)
+            );
+
+            await adminVoteChan.send({ embeds: [adminEmbed], components: [adminRow] });
+        }
+
+        // 3. روم العلَن للانتخابات (التصويت للناس)
+        const publicVoteChan = await guild.channels.fetch(PUBLIC_VOTE_ROOM).catch(() => {});
+        if (publicVoteChan && publicVoteChan.isTextBased()) {
+            await cleanBotMessages(publicVoteChan);
+            const publicEmbed = new EmbedBuilder()
+                .setTitle('⚖️ وزارة العدل - انتخابات القضاة الرسمية')
+                .setDescription('المواطنين الكرام، انطلاقاً من تعزيز العدالة وشفافية الاختيار، تم فتح باب التصويت لاختيار قاضي جديد.\nيرجى الاطلاع على المرشحين أدناه والإدلاء بصوتكم بكل نزاهة (يحق لك التصويت مرة واحدة فقط ولا يمكنك التصويت لنفسك):')
+                .setColor(0xC9B037)
+                .setFooter({ text: 'وزارة العدل - الانتخابات القضائية' });
+
+            const voteRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('open_voting_booth_btn').setLabel('🗳️ اضغط هنا للمشاركة والتصويت').setStyle(ButtonStyle.Primary)
+            );
+
+            await publicVoteChan.send({ embeds: [publicEmbed], components: [voteRow] });
         }
 
         // لوحة إدارة القروب
@@ -128,15 +171,10 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 
     const memberId = newState.id;
 
-    // تنبيه صاحب الروم عند دخول شخص جديد
     if (newState.channel && SPECIAL_ROOMS[newState.channel.id]) {
         const ownerId = SPECIAL_ROOMS[newState.channel.id];
-        
-        // لو اللي دخل مو صاحب الروم
         if (memberId !== ownerId) {
             const isOwnerInside = newState.channel.members.has(ownerId);
-            
-            // التنبيه يرسل فقط إذا صاحب الروم غير موجود بالروم
             if (!isOwnerInside) {
                 try {
                     const ownerMember = await guild.members.fetch(ownerId).catch(() => null);
@@ -244,6 +282,78 @@ client.on('interactionCreate', async interaction => {
 
         if (interaction.isButton()) {
             const customId = interaction.customId;
+
+            // فتح مودال إضافة مرشح للمسؤولين
+            if (customId === 'add_candidate_modal_btn') {
+                const modal = new ModalBuilder()
+                    .setCustomId('modal_add_candidate')
+                    .setTitle('وزارة العدل - إضافة مرشح قاضي جديد');
+
+                const nameInput = new TextInputBuilder()
+                    .setCustomId('cand_name')
+                    .setLabel('الاسم الأساسي للمرشح:')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('مثال: القاضي فلان أو اسم المتقدم...')
+                    .setRequired(true);
+
+                const idInput = new TextInputBuilder()
+                    .setCustomId('cand_user_id')
+                    .setLabel('آيدي حساب ديسكورد للمرشح (User ID):')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('ألصق آيدي العضو هنا...')
+                    .setRequired(true);
+
+                modal.addComponents(new ActionRowBuilder().addComponents(nameInput), new ActionRowBuilder().addComponents(idInput));
+                return await interaction.showModal(modal);
+            }
+
+            // عرض النتائج للمسؤولين فقط (سرية ولا تظهر للعامة)
+            if (customId === 'view_votes_results_btn') {
+                if (candidatesList.length === 0) {
+                    return await interaction.reply({ content: '⚠️ لا يوجد أي مرشحين مضافين حتى الآن في النظام.', ephemeral: true });
+                }
+
+                let resultsDesc = '📊 **إحصائيات الأصوات الحالية (خاص بالمسؤولين):**\n\n';
+                candidatesList.forEach((c, index) => {
+                    resultsDesc += `**${index + 1}. المرشح:** ${c.name} (<@${c.userId}>)\n📌 **عدد الأصوات:** \`${c.votes.size} صوت\`\n----------------------------------\n`;
+                });
+
+                const resEmbed = new EmbedBuilder()
+                    .setTitle('⚖️ وزارة العدل - نتائج الأصوات السرية')
+                    .setDescription(resultsDesc)
+                    .setColor(0xC9B037)
+                    .setTimestamp();
+
+                return await interaction.reply({ embeds: [resEmbed], ephemeral: true });
+            }
+
+            // فتح قائمة التصويت للعامة في روم العلَن
+            if (customId === 'open_voting_booth_btn') {
+                if (userVotedSet.has(interaction.user.id)) {
+                    return await interaction.reply({ content: '❌ عذراً، لقد قمت بالتصويت مسبقاً ولا يمكنك التصويت مرتين!', ephemeral: true });
+                }
+
+                if (candidatesList.length === 0) {
+                    return await interaction.reply({ content: '⚠️ لم يتم اعتماد أي مرشحين للانتخابات حتى الآن من قبل المسؤولين.', ephemeral: true });
+                }
+
+                const options = candidatesList.map(c => ({
+                    label: c.name.slice(0, 100),
+                    description: `تصويت لصالح المرشح المعتمد`.slice(0, 100),
+                    value: `vote_for_${c.userId}`
+                }));
+
+                const selectMenu = new StringSelectMenuBuilder()
+                    .setCustomId('public_vote_select_menu')
+                    .setPlaceholder('🗳️ اختر المرشح الذي تود انتخابه...')
+                    .addOptions(options.slice(0, 25));
+
+                return await interaction.reply({
+                    content: '👇 اختر من القائمة أدناه مرشحك المناسب لمنصب القاضي:',
+                    components: [new ActionRowBuilder().addComponents(selectMenu)],
+                    ephemeral: true
+                });
+            }
 
             if (customId.startsWith('mute_room_') || customId.startsWith('unmute_room_')) {
                 const parts = customId.split('_');
@@ -395,268 +505,54 @@ client.on('interactionCreate', async interaction => {
             }
         }
 
-        if (interaction.isChannelSelectMenu() && interaction.customId === 'direct_channel_select') {
-            const selectedChannelId = interaction.values[0];
-            const modal = new ModalBuilder()
-                .setCustomId(`modal_channel_msg_${selectedChannelId}`)
-                .setTitle('اكتب رسالة الروم الرسمية');
-
-            const messageInput = new TextInputBuilder().setCustomId('channel_message_text').setLabel('محتوى الرسالة:').setStyle(TextInputStyle.Paragraph).setRequired(true);
-            modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
-            return await interaction.showModal(modal);
-        }
-
-        if (interaction.isRoleSelectMenu()) {
-            let suffix = 'admin';
-            if (interaction.customId.includes('_manager')) suffix = 'manager';
-            if (interaction.customId.includes('_deputy')) suffix = 'deputy';
-
-            const selectedRoleId = interaction.values[0];
-            const modal = new ModalBuilder()
-                .setCustomId(`modal_role_msg_${suffix}_${selectedRoleId}`)
-                .setTitle('اكتب رسالة الرول الرسمية');
-
-            const messageInput = new TextInputBuilder().setCustomId('role_message_text').setLabel('محتوى الرسالة:').setStyle(TextInputStyle.Paragraph).setRequired(true);
-            modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
-            return await interaction.showModal(modal);
-        }
-
-        if (interaction.isUserSelectMenu()) {
-            let suffix = 'admin';
-            if (interaction.customId.includes('_manager')) suffix = 'manager';
-            if (interaction.customId.includes('_deputy')) suffix = 'deputy';
-
-            const selectedUserId = interaction.values[0];
-            const modal = new ModalBuilder()
-                .setCustomId(`modal_user_msg_${suffix}_${selectedUserId}`)
-                .setTitle('رسالة توجيه رسمية شخصية');
-
-            const messageInput = new TextInputBuilder().setCustomId('user_message_text').setLabel('محتوى الرسالة:').setStyle(TextInputStyle.Paragraph).setRequired(true);
-            modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
-            return await interaction.showModal(modal);
-        }
-
-        if (interaction.isModalSubmit()) {
-            const customId = interaction.customId;
-            const senderInfo = getSenderInfo(interaction);
-
-            if (customId.startsWith('modal_channel_msg_') || customId === 'modal_id_channel') {
-                let targetChannelId, channelMsg;
-
-                if (customId.startsWith('modal_channel_msg_')) {
-                    targetChannelId = customId.replace('modal_channel_msg_', '');
-                    channelMsg = interaction.fields.getTextInputValue('channel_message_text');
-                } else {
-                    targetChannelId = interaction.fields.getTextInputValue('target_id').trim();
-                    channelMsg = interaction.fields.getTextInputValue('target_msg');
+        if (interaction.isStringSelectMenu()) {
+            // معالجة اختيار التصويت في روم العلَن
+            if (interaction.customId === 'public_vote_select_menu') {
+                if (userVotedSet.has(interaction.user.id)) {
+                    return await interaction.reply({ content: '❌ عذراً، لقد قمت بالتصويت مسبقاً!', ephemeral: true });
                 }
 
-                await interaction.deferReply({ ephemeral: true });
-                try {
-                    const targetChannel = await guild.channels.fetch(targetChannelId).catch(() => null);
-                    if (!targetChannel || !targetChannel.isTextBased()) {
-                        return interaction.editReply('❌ عذراً، لم يتم العثور على الروم أو أنه ليس روم كتابي.');
-                    }
+                const selectedVal = interaction.values[0];
+                const targetUserId = selectedVal.replace('vote_for_', '');
 
-                    const channelEmbed = new EmbedBuilder()
-                        .setTitle(`📢 ${senderInfo.title}`)
-                        .setDescription(channelMsg)
-                        .setColor(0x2f3136)
-                        .setTimestamp();
-
-                    await targetChannel.send({ embeds: [channelEmbed] });
-
-                    if (inboxChannel && inboxChannel.isTextBased()) {
-                        const logEmbed = new EmbedBuilder()
-                            .setTitle('📢 رسالة إدارية تم إرسالها لروم في السيرفر')
-                            .addFields(
-                                { name: '👤 المرسل', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
-                                { name: '🏷️ الصفة', value: `\`${senderInfo.label}\``, inline: true },
-                                { name: '📂 الروم المستهدف', value: `${targetChannel} (\`${targetChannel.id}\`)`, inline: true },
-                                { name: '💬 محتوى الرسالة', value: channelMsg, inline: false }
-                            )
-                            .setColor(0x57F287)
-                            .setTimestamp();
-                        await inboxChannel.send({ embeds: [logEmbed] }).catch(() => {});
-                    }
-
-                    return interaction.editReply(`✅ تم إرسال الرسالة الرسمية بنجاح إلى الروم ${targetChannel}!`);
-                } catch (err) {
-                    return interaction.editReply('❌ فشل إرسال الرسالة، تأكد من صحة آيدي الروم وأن البوت يملك صلاحية الإرسال هناك.');
+                // منع العضو من التصويت لنفسه
+                if (interaction.user.id === targetUserId) {
+                    return await interaction.reply({ content: '❌ لا يمكنك التصويت لنفسك في الانتخابات!', ephemeral: true });
                 }
+
+                const candidate = candidatesList.find(c => c.userId === targetUserId);
+                if (!candidate) {
+                    return await interaction.reply({ content: '❌ عذراً، هذا المرشح لم يعد موجوداً في القائمة.', ephemeral: true });
+                }
+
+                // تسجيل الصوت
+                candidate.votes.add(interaction.user.id);
+                userVotedSet.add(interaction.user.id);
+
+                return await interaction.reply({
+                    content: `✅ **تم اعتماد صوتك بنجاح لصالح المرشح:** ${candidate.name} (<@${candidate.userId}>).\nشكراً لمشاركتك في العملية الانتخابية لوزارة العدل.`,
+                    ephemeral: true
+                });
             }
 
-            if (customId.startsWith('modal_direct_reply_')) {
-                const parts = customId.split('_');
-                const suffix = parts[3];
-                const userId = parts[4];
-                const replyText = interaction.fields.getTextInputValue('reply_text');
+            if (interaction.customId === 'select_room_actions') {
+                const vcId = interaction.values[0].replace('manage_room_', '');
+                const actionSelect = new StringSelectMenuBuilder()
+                    .setCustomId(`room_sub_action_${vcId}`)
+                    .setPlaceholder('⚙️ اختر العملية المطلوبة لهذا الروم...')
+                    .addOptions([
+                        { label: '🔇 ميوت جميع أعضاء الروم', value: `mute_${vcId}` },
+                        { label: '🔊 فك الميوت عن أعضاء الروم', value: `unmute_${vcId}` }
+                    ]);
 
-                let customSenderInfo = { title: 'توجيه رسمي من إدارة السيرفر', label: 'إداري عام' };
-                if (suffix === 'manager') customSenderInfo = { title: 'توجيه رسمي من مدير القروب', label: 'مدير القروب' };
-                if (suffix === 'deputy') customSenderInfo = { title: 'توجيه رسمي من نائب المدير', label: 'نائب المدير' };
-
-                await interaction.deferReply({ ephemeral: true });
-                try {
-                    const targetMember = await guild.members.fetch(userId).catch(() => null);
-                    if (!targetMember) return interaction.editReply('❌ عذراً، لم يتم العثور على هذا العضو.');
-
-                    const replyEmbed = new EmbedBuilder()
-                        .setTitle(`🛡️ ${customSenderInfo.title}`)
-                        .setDescription(replyText)
-                        .setColor(0xFEE75C)
-                        .setTimestamp();
-
-                    await targetMember.send({ embeds: [replyEmbed] });
-
-                    if (inboxChannel && inboxChannel.isTextBased()) {
-                        const logEmbed = new EmbedBuilder()
-                            .setTitle('📤 رد إداري تم إرساله لعضو')
-                            .addFields(
-                                { name: '👤 المرسل', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
-                                { name: '🏷️ الصفة', value: `\`${customSenderInfo.label}\``, inline: true },
-                                { name: '👥 العضو المستهدف', value: `${targetMember} (\`${targetMember.user.tag}\`)`, inline: true },
-                                { name: '💬 محتوى الرد', value: replyText, inline: false }
-                            )
-                            .setColor(0x57F287)
-                            .setTimestamp();
-                        await inboxChannel.send({ embeds: [logEmbed] }).catch(() => {});
-                    }
-
-                    return interaction.editReply(`✅ تم إرسال الرد بنجاح إلى العضو **${targetMember.user.tag}**!`);
-                } catch (err) {
-                    return interaction.editReply('❌ فشل إرسال الرد (قد يكون مقفل الخاص).');
-                }
+                const row = new ActionRowBuilder().addComponents(actionSelect);
+                return await interaction.reply({ content: '👇 ماذا تريد أن تفعل بهذا الروم؟', components: [row], ephemeral: true });
             }
 
-            // معالجة الإرسال للرول المحدثة بالكامل لمنع أي نقص وتفصيل النتيجة
-            if (customId.startsWith('modal_role_msg_') || customId.startsWith('modal_id_role_')) {
-                let type, roleId, messageText;
+            if (interaction.customId.startsWith('room_sub_action_')) {
+                const selectedVal = interaction.values[0];
+                const [action, channelId] = selectedVal.split('_');
 
-                if (customId.startsWith('modal_role_msg_')) {
-                    const parts = customId.split('_');
-                    type = parts[3];
-                    roleId = parts[4];
-                    messageText = interaction.fields.getTextInputValue('role_message_text');
-                } else {
-                    const parts = customId.split('_');
-                    type = parts[3];
-                    roleId = interaction.fields.getTextInputValue('target_id').trim();
-                    messageText = interaction.fields.getTextInputValue('target_msg');
-                }
+                await interaction.deferUpdate();
 
-                let customSenderInfo = { title: 'توجيه رسمي من إدارة السيرفر', label: 'إداري عام' };
-                if (type === 'manager') customSenderInfo = { title: 'توجيه رسمي من مدير القروب', label: 'مدير القروب' };
-                if (type === 'deputy') customSenderInfo = { title: 'توجيه رسمي من نائب المدير', label: 'نائب المدير' };
-
-                await interaction.deferReply({ ephemeral: true });
-                const targetRole = await guild.roles.fetch(roleId).catch(() => null);
-                if (!targetRole) return interaction.editReply('❌ عذراً، لم يتم العثور على رول بهذا الآيدي.');
-
-                // جلب كافة أعضاء السيرفر لضمان وصول القائمة كاملة للرول
-                await guild.members.fetch();
-                const membersWithRole = Array.from(targetRole.members.filter(m => !m.user.bot).values());
-
-                const roleEmbed = new EmbedBuilder()
-                    .setTitle(`📢 ${customSenderInfo.title}`)
-                    .setDescription(messageText)
-                    .setColor(0x5865F2)
-                    .setTimestamp();
-
-                let successCount = 0;
-                let failedUsers = [];
-
-                for (const member of membersWithRole) {
-                    try {
-                        await member.send({ embeds: [roleEmbed] });
-                        successCount++;
-                        // تأخير بسيط لتجنب طرد البوت من حماية الديسكورد
-                        await new Promise(resolve => setTimeout(resolve, 300));
-                    } catch (err) {
-                        failedUsers.push(`${member} (\`${member.user.tag}\` - ID: \`${member.id}\`)`);
-                    }
-                }
-
-                if (inboxChannel && inboxChannel.isTextBased()) {
-                    let deliveryStatus = "✅ تم الإرسال بنجاح لجميع الأعضاء بدون أخطاء.";
-                    if (failedUsers.length > 0) {
-                        deliveryStatus = `⚠️ لم يكتمل الإرسال للجميع!\n**عدد الذين لم تصلهم الرسالة (${failedUsers.length}):**\n` + failedUsers.join('\n') + `\n*(السبب الغالب: مقفلين الخاص DM)*`;
-                    }
-
-                    const logEmbed = new EmbedBuilder()
-                        .setTitle('📢 تقرير إرسال رسالة جماعية لرول')
-                        .addFields(
-                            { name: '👤 المرسل', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
-                            { name: '🏷️ الصفة', value: `\`${customSenderInfo.label}\``, inline: true },
-                            { name: '🎯 الرول المستهدف', value: `${targetRole.name} (\`${targetRole.id}\`)`, inline: true },
-                            { name: '📊 نسبة الوصول', value: `تم الإرسال بنجاح إلى **${successCount}** من أصل **${membersWithRole.length}** عضو`, inline: false },
-                            { name: '📝 حالة التسليم التفصيلية', value: deliveryStatus, inline: false },
-                            { name: '💬 محتوى الرسالة', value: messageText, inline: false }
-                        )
-                        .setColor(failedUsers.length === 0 ? 0x57F287 : 0xED4245)
-                        .setTimestamp();
-
-                    await inboxChannel.send({ embeds: [logEmbed] }).catch(() => {});
-                }
-
-                return interaction.editReply(`✅ تم إنهاء الإرسال! وصل بنجاح إلى **${successCount}** من **${membersWithRole.length}** عضو.`);
-            }
-
-            if (customId.startsWith('modal_user_msg_') || customId.startsWith('modal_id_user_')) {
-                let type, userId, messageText;
-
-                if (customId.startsWith('modal_user_msg_')) {
-                    const parts = customId.split('_');
-                    type = parts[3];
-                    userId = parts[4];
-                    messageText = interaction.fields.getTextInputValue('user_message_text');
-                } else {
-                    const parts = customId.split('_');
-                    type = parts[3];
-                    userId = interaction.fields.getTextInputValue('target_id').trim();
-                    messageText = interaction.fields.getTextInputValue('target_msg');
-                }
-
-                let customSenderInfo = { title: 'توجيه رسمي من إدارة السيرفر', label: 'إداري عام' };
-                if (type === 'manager') customSenderInfo = { title: 'توجيه رسمي من مدير القروب', label: 'مدير القروب' };
-                if (type === 'deputy') customSenderInfo = { title: 'توجيه رسمي من نائب المدير', label: 'نائب المدير' };
-
-                await interaction.deferReply({ ephemeral: true });
-                try {
-                    const targetMember = await guild.members.fetch(userId).catch(() => null);
-                    if (!targetMember) return interaction.editReply('❌ عذراً، لم يتم العثور على هذا العضو.');
-
-                    const userEmbed = new EmbedBuilder()
-                        .setTitle(`🛡️ ${customSenderInfo.title}`)
-                        .setDescription(messageText)
-                        .setColor(0xFEE75C)
-                        .setTimestamp();
-
-                    await targetMember.send({ embeds: [userEmbed] });
-
-                    if (inboxChannel && inboxChannel.isTextBased()) {
-                        const logEmbed = new EmbedBuilder()
-                            .setTitle('✉️ رسالة إدارية خاصة تم إرسالها لعضو')
-                            .addFields(
-                                { name: '👤 المرسل', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
-                                { name: '🏷️ الصفة', value: `\`${customSenderInfo.label}\``, inline: true },
-                                { name: '👥 العضو المستهدف', value: `${targetMember} (\`${targetMember.user.tag}\`)`, inline: true },
-                                { name: '💬 محتوى الرسالة', value: messageText, inline: false }
-                            )
-                            .setColor(0x3498DB)
-                            .setTimestamp();
-                        await inboxChannel.send({ embeds: [logEmbed] }).catch(() => {});
-                    }
-
-                    return interaction.editReply(`✅ تمت إرسال الرسالة بنجاح إلى العضو **${targetMember.user.tag}**!`);
-                } catch (err) {
-                    return interaction.editReply('❌ فشل إرسال الرسالة الخاصة (قد يكون مقفل الخاص).');
-                }
-            }
-        }
-    } catch (error) {
-        console.error('خطأ في التفاعل:', error);
-    }
-});
-
-client.login(process.env.DISCORD_TOKEN);
+                const channel = await guild.
