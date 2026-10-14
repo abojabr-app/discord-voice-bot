@@ -555,4 +555,299 @@ client.on('interactionCreate', async interaction => {
 
                 await interaction.deferUpdate();
 
-                const channel = await guild.
+                const channel = await guild.channels.fetch(channelId).catch(() => {});
+                if (!channel || !channel.isVoiceBased()) return;
+
+                const shouldMute = (action === 'mute');
+                const promises = [];
+
+                channel.members.forEach(member => {
+                    if (member.voice) {
+                        promises.push(member.voice.setMute(shouldMute).catch(() => {}));
+                    }
+                });
+
+                await Promise.all(promises);
+                return interaction.followUp({ content: `✅ تم تنفيذ العملية بنجاح على روم **${channel.name}**!`, ephemeral: true });
+            }
+        }
+
+        if (interaction.isChannelSelectMenu() && interaction.customId === 'direct_channel_select') {
+            const selectedChannelId = interaction.values[0];
+            const modal = new ModalBuilder()
+                .setCustomId(`modal_channel_msg_${selectedChannelId}`)
+                .setTitle('اكتب رسالة الروم الرسمية');
+
+            const messageInput = new TextInputBuilder().setCustomId('channel_message_text').setLabel('محتوى الرسالة:').setStyle(TextInputStyle.Paragraph).setRequired(true);
+            modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
+            return await interaction.showModal(modal);
+        }
+
+        if (interaction.isRoleSelectMenu()) {
+            let suffix = 'admin';
+            if (interaction.customId.includes('_manager')) suffix = 'manager';
+            if (interaction.customId.includes('_deputy')) suffix = 'deputy';
+
+            const selectedRoleId = interaction.values[0];
+            const modal = new ModalBuilder()
+                .setCustomId(`modal_role_msg_${suffix}_${selectedRoleId}`)
+                .setTitle('اكتب رسالة الرول الرسمية');
+
+            const messageInput = new TextInputBuilder().setCustomId('role_message_text').setLabel('محتوى الرسالة:').setStyle(TextInputStyle.Paragraph).setRequired(true);
+            modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
+            return await interaction.showModal(modal);
+        }
+
+        if (interaction.isUserSelectMenu()) {
+            let suffix = 'admin';
+            if (interaction.customId.includes('_manager')) suffix = 'manager';
+            if (interaction.customId.includes('_deputy')) suffix = 'deputy';
+
+            const selectedUserId = interaction.values[0];
+            const modal = new ModalBuilder()
+                .setCustomId(`modal_user_msg_${suffix}_${selectedUserId}`)
+                .setTitle('رسالة توجيه رسمية شخصية');
+
+            const messageInput = new TextInputBuilder().setCustomId('user_message_text').setLabel('محتوى الرسالة:').setStyle(TextInputStyle.Paragraph).setRequired(true);
+            modal.addComponents(new ActionRowBuilder().addComponents(messageInput));
+            return await interaction.showModal(modal);
+        }
+
+        if (interaction.isModalSubmit()) {
+            const customId = interaction.customId;
+            const senderInfo = getSenderInfo(interaction);
+
+            // معالجة نموذج إضافة مرشح جديد للقضاة (من قبل المسؤولين)
+            if (customId === 'modal_add_candidate') {
+                const candName = interaction.fields.getTextInputValue('cand_name').trim();
+                const candUserId = interaction.fields.getTextInputValue('cand_user_id').trim();
+
+                candidatesList.push({
+                    name: candName,
+                    userId: candUserId,
+                    votes: new Set()
+                });
+
+                return await interaction.reply({
+                    content: `✅ **تمت إضافة المرشح بنجاح إلى قائمة قضاة المستقبل:**\n📌 **الاسم:** ${candName}\n👤 **الحساب:** <@${candUserId}> (\`${candUserId}\`)`,
+                    ephemeral: true
+                });
+            }
+
+            if (customId.startsWith('modal_channel_msg_') || customId === 'modal_id_channel') {
+                let targetChannelId, channelMsg;
+
+                if (customId.startsWith('modal_channel_msg_')) {
+                    targetChannelId = customId.replace('modal_channel_msg_', '');
+                    channelMsg = interaction.fields.getTextInputValue('channel_message_text');
+                } else {
+                    targetChannelId = interaction.fields.getTextInputValue('target_id').trim();
+                    channelMsg = interaction.fields.getTextInputValue('target_msg');
+                }
+
+                await interaction.deferReply({ ephemeral: true });
+                try {
+                    const targetChannel = await guild.channels.fetch(targetChannelId).catch(() => null);
+                    if (!targetChannel || !targetChannel.isTextBased()) {
+                        return interaction.editReply('❌ عذراً، لم يتم العثور على الروم أو أنه ليس روم كتابي.');
+                    }
+
+                    const channelEmbed = new EmbedBuilder()
+                        .setTitle(`📢 ${senderInfo.title}`)
+                        .setDescription(channelMsg)
+                        .setColor(0x2f3136)
+                        .setTimestamp();
+
+                    await targetChannel.send({ embeds: [channelEmbed] });
+
+                    if (inboxChannel && inboxChannel.isTextBased()) {
+                        const logEmbed = new EmbedBuilder()
+                            .setTitle('📢 رسالة إدارية تم إرسالها لروم في السيرفر')
+                            .addFields(
+                                { name: '👤 المرسل', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
+                                { name: '🏷️ الصفة', value: `\`${senderInfo.label}\``, inline: true },
+                                { name: '📂 الروم المستهدف', value: `${targetChannel} (\`${targetChannel.id}\`)`, inline: true },
+                                { name: '💬 محتوى الرسالة', value: channelMsg, inline: false }
+                            )
+                            .setColor(0x57F287)
+                            .setTimestamp();
+                        await inboxChannel.send({ embeds: [logEmbed] }).catch(() => {});
+                    }
+
+                    return interaction.editReply(`✅ تم إرسال الرسالة الرسمية بنجاح إلى الروم ${targetChannel}!`);
+                } catch (err) {
+                    return interaction.editReply('❌ فشل إرسال الرسالة، تأكد من صحة آيدي الروم وأن البوت يملك صلاحية الإرسال هناك.');
+                }
+            }
+
+            if (customId.startsWith('modal_direct_reply_')) {
+                const parts = customId.split('_');
+                const suffix = parts[3];
+                const userId = parts[4];
+                const replyText = interaction.fields.getTextInputValue('reply_text');
+
+                let customSenderInfo = { title: 'توجيه رسمي من إدارة السيرفر', label: 'إداري عام' };
+                if (suffix === 'manager') customSenderInfo = { title: 'توجيه رسمي من مدير القروب', label: 'مدير القروب' };
+                if (suffix === 'deputy') customSenderInfo = { title: 'توجيه رسمي من نائب المدير', label: 'نائب المدير' };
+
+                await interaction.deferReply({ ephemeral: true });
+                try {
+                    const targetMember = await guild.members.fetch(userId).catch(() => null);
+                    if (!targetMember) return interaction.editReply('❌ عذراً، لم يتم العثور على هذا العضو.');
+
+                    const replyEmbed = new EmbedBuilder()
+                        .setTitle(`🛡️ ${customSenderInfo.title}`)
+                        .setDescription(replyText)
+                        .setColor(0xFEE75C)
+                        .setTimestamp();
+
+                    await targetMember.send({ embeds: [replyEmbed] });
+
+                    if (inboxChannel && inboxChannel.isTextBased()) {
+                        const logEmbed = new EmbedBuilder()
+                            .setTitle('📤 رد إداري تم إرساله لعضو')
+                            .addFields(
+                                { name: '👤 المرسل', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
+                                { name: '🏷️ الصفة', value: `\`${customSenderInfo.label}\``, inline: true },
+                                { name: '👥 العضو المستهدف', value: `${targetMember} (\`${targetMember.user.tag}\`)`, inline: true },
+                                { name: '💬 محتوى الرد', value: replyText, inline: false }
+                            )
+                            .setColor(0x57F287)
+                            .setTimestamp();
+                        await inboxChannel.send({ embeds: [logEmbed] }).catch(() => {});
+                    }
+
+                    return interaction.editReply(`✅ تم إرسال الرد بنجاح إلى العضو **${targetMember.user.tag}**!`);
+                } catch (err) {
+                    return interaction.editReply('❌ فشل إرسال الرد (قد يكون مقفل الخاص).');
+                }
+            }
+
+            if (customId.startsWith('modal_role_msg_') || customId.startsWith('modal_id_role_')) {
+                let type, roleId, messageText;
+
+                if (customId.startsWith('modal_role_msg_')) {
+                    const parts = customId.split('_');
+                    type = parts[3];
+                    roleId = parts[4];
+                    messageText = interaction.fields.getTextInputValue('role_message_text');
+                } else {
+                    const parts = customId.split('_');
+                    type = parts[3];
+                    roleId = interaction.fields.getTextInputValue('target_id').trim();
+                    messageText = interaction.fields.getTextInputValue('target_msg');
+                }
+
+                let customSenderInfo = { title: 'توجيه رسمي من إدارة السيرفر', label: 'إداري عام' };
+                if (type === 'manager') customSenderInfo = { title: 'توجيه رسمي من مدير القروب', label: 'مدير القروب' };
+                if (type === 'deputy') customSenderInfo = { title: 'توجيه رسمي من نائب المدير', label: 'نائب المدير' };
+
+                await interaction.deferReply({ ephemeral: true });
+                const targetRole = await guild.roles.fetch(roleId).catch(() => null);
+                if (!targetRole) return interaction.editReply('❌ عذراً، لم يتم العثور على رول بهذا الآيدي.');
+
+                await guild.members.fetch();
+                const membersWithRole = Array.from(targetRole.members.filter(m => !m.user.bot).values());
+
+                const roleEmbed = new EmbedBuilder()
+                    .setTitle(`📢 ${customSenderInfo.title}`)
+                    .setDescription(messageText)
+                    .setColor(0x5865F2)
+                    .setTimestamp();
+
+                let successCount = 0;
+                let failedUsers = [];
+
+                for (const member of membersWithRole) {
+                    try {
+                        await member.send({ embeds: [roleEmbed] });
+                        successCount++;
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                    } catch (err) {
+                        failedUsers.push(`${member} (\`${member.user.tag}\` - ID: \`${member.id}\`)`);
+                    }
+                }
+
+                if (inboxChannel && inboxChannel.isTextBased()) {
+                    let deliveryStatus = "✅ تم الإرسال بنجاح لجميع الأعضاء بدون أخطاء.";
+                    if (failedUsers.length > 0) {
+                        deliveryStatus = `⚠️ لم يكتمل الإرسال للبعض!\n**العدد (${failedUsers.length}):**\n` + failedUsers.join('\n') + `\n*(السبب: قد يكون الخاص مغلقاً)*`;
+                    }
+
+                    const logEmbed = new EmbedBuilder()
+                        .setTitle('📢 تقرير إرسال رسالة جماعية لرول')
+                        .addFields(
+                            { name: '👤 المرسل', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
+                            { name: '🏷️ الصفة', value: `\`${customSenderInfo.label}\``, inline: true },
+                            { name: '🎯 الرول المستهدف', value: `${targetRole.name} (\`${targetRole.id}\`)`, inline: true },
+                            { name: '📊 نسبة الوصول', value: `تم الإرسال بنجاح إلى **${successCount}** من أصل **${membersWithRole.length}** عضو`, inline: false },
+                            { name: '📝 حالة التسليم والتفاصيل', value: deliveryStatus, inline: false },
+                            { name: '💬 محتوى الرسالة', value: messageText, inline: false }
+                        )
+                        .setColor(failedUsers.length === 0 ? 0x57F287 : 0xED4245)
+                        .setTimestamp();
+
+                    await inboxChannel.send({ embeds: [logEmbed] }).catch(() => {});
+                }
+
+                return interaction.editReply(`✅ تم إنهاء الإرسال! وصل بنجاح إلى **${successCount}** من **${membersWithRole.length}** عضو.`);
+            }
+
+            if (customId.startsWith('modal_user_msg_') || customId.startsWith('modal_id_user_')) {
+                let type, userId, messageText;
+
+                if (customId.startsWith('modal_user_msg_')) {
+                    const parts = customId.split('_');
+                    type = parts[3];
+                    userId = parts[4];
+                    messageText = interaction.fields.getTextInputValue('user_message_text');
+                } else {
+                    const parts = customId.split('_');
+                    type = parts[3];
+                    userId = interaction.fields.getTextInputValue('target_id').trim();
+                    messageText = interaction.fields.getTextInputValue('target_msg');
+                }
+
+                let customSenderInfo = { title: 'توجيه رسمي من إدارة السيرفر', label: 'إداري عام' };
+                if (type === 'manager') customSenderInfo = { title: 'توجيه رسمي من مدير القروب', label: 'مدير القروب' };
+                if (type === 'deputy') customSenderInfo = { title: 'توجيه رسمي من نائب المدير', label: 'نائب المدير' };
+
+                await interaction.deferReply({ ephemeral: true });
+                try {
+                    const targetMember = await guild.members.fetch(userId).catch(() => null);
+                    if (!targetMember) return interaction.editReply('❌ عذراً، لم يتم العثور على هذا العضو.');
+
+                    const userEmbed = new EmbedBuilder()
+                        .setTitle(`🛡️ ${customSenderInfo.title}`)
+                        .setDescription(messageText)
+                        .setColor(0xFEE75C)
+                        .setTimestamp();
+
+                    await targetMember.send({ embeds: [userEmbed] });
+
+                    if (inboxChannel && inboxChannel.isTextBased()) {
+                        const logEmbed = new EmbedBuilder()
+                            .setTitle('✉️ رسالة إدارية خاصة تم إرسالها لعضو')
+                            .addFields(
+                                { name: '👤 المرسل', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
+                                { name: '🏷️ الصفة', value: `\`${customSenderInfo.label}\``, inline: true },
+                                { name: '👥 العضو المستهدف', value: `${targetMember} (\`${targetMember.user.tag}\`)`, inline: true },
+                                { name: '💬 محتوى الرسالة', value: messageText, inline: false }
+                            )
+                            .setColor(0x3498DB)
+                            .setTimestamp();
+                        await inboxChannel.send({ embeds: [logEmbed] }).catch(() => {});
+                    }
+
+                    return interaction.editReply(`✅ تمت إرسال الرسالة بنجاح إلى العضو **${targetMember.user.tag}**!`);
+                } catch (err) {
+                    return interaction.editReply('❌ فشل إرسال الرسالة الخاصة (قد يكون مقفل الخاص).');
+                }
+            }
+        }
+    } catch (error) {
+        console.error('خطأ في التفاعل:', error);
+    }
+});
+
+client.login(process.env.DISCORD_TOKEN);
