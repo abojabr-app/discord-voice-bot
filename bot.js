@@ -30,13 +30,13 @@ const INBOX_CHANNEL_ID = '1555355545504850103';
 const MANAGER_ROOM_ID = '1555573365748531251';
 const DEPUTY_ROOM_ID = '1555941998819811439';
 
-// رومات الانتخابات والقضاة الجديدة
+// رومات الانتخابات والقضاة
 const PUBLIC_VOTE_ROOM = '1559895002769920010';
 const ADMIN_VOTE_ROOM = '1559895171938652290';
 
-// تخزين المرشحين والأصوات (Memory Storage)
-const candidatesList = []; // يحفظ { name, userId, votes: Set }
-const userVotedSet = new Set(); // أعضاء صوتوا مسبقاً
+// تخزين المرشحين والأصوات
+const candidatesList = [];
+const userVotedSet = new Set();
 
 // جدول الرومات الخاصة وأصحابها
 const SPECIAL_ROOMS = {
@@ -52,7 +52,8 @@ const voiceControlMessages = new Map();
 client.once('ready', async () => {
     console.log(`Bot logged in as ${client.user.tag}!`);
     try {
-        const guild = await client.guilds.fetch(GUILD_ID);
+        const guild = await client.guilds.fetch(GUILD_ID).catch(() => null);
+        if (!guild) return console.log('❌ السيرفر غير موجود أو الآيدي خاطئ');
 
         const cleanBotMessages = async (channel) => {
             if (!channel || !channel.isTextBased()) return;
@@ -109,7 +110,7 @@ client.once('ready', async () => {
             await adminVoteChan.send({ embeds: [adminEmbed], components: [adminRow] });
         }
 
-        // 3. روم العلَن للانتخابات (التصويت للناس)
+        // 3. روم العلَن للانتخابات
         const publicVoteChan = await guild.channels.fetch(PUBLIC_VOTE_ROOM).catch(() => {});
         if (publicVoteChan && publicVoteChan.isTextBased()) {
             await cleanBotMessages(publicVoteChan);
@@ -167,7 +168,7 @@ client.once('ready', async () => {
 // التعامل مع الدخول للرومات الصوتية والتنبيهات
 client.on('voiceStateUpdate', async (oldState, newState) => {
     const guild = newState.guild || oldState.guild;
-    if (guild.id !== GUILD_ID) return;
+    if (!guild || guild.id !== GUILD_ID) return;
 
     const memberId = newState.id;
 
@@ -232,11 +233,13 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 });
 
 client.on('messageCreate', async message => {
-    const guild = message.guild;
-    if (!guild) return;
+    if (message.author.bot) return;
 
-    if (!message.guild && !message.author.bot) {
+    if (!message.guild) {
         try {
+            const guild = await client.guilds.fetch(GUILD_ID).catch(() => null);
+            if (!guild) return;
+
             const inboxChannel = await guild.channels.fetch(INBOX_CHANNEL_ID).catch(() => {});
             if (!inboxChannel || !inboxChannel.isTextBased()) return;
 
@@ -283,7 +286,6 @@ client.on('interactionCreate', async interaction => {
         if (interaction.isButton()) {
             const customId = interaction.customId;
 
-            // فتح مودال إضافة مرشح للمسؤولين
             if (customId === 'add_candidate_modal_btn') {
                 const modal = new ModalBuilder()
                     .setCustomId('modal_add_candidate')
@@ -293,7 +295,7 @@ client.on('interactionCreate', async interaction => {
                     .setCustomId('cand_name')
                     .setLabel('الاسم الأساسي للمرشح:')
                     .setStyle(TextInputStyle.Short)
-                    .setPlaceholder('مثال: القاضي فلان أو اسم المتقدم...')
+                    .setPlaceholder('مثال: القاضي فلان...')
                     .setRequired(true);
 
                 const idInput = new TextInputBuilder()
@@ -307,7 +309,6 @@ client.on('interactionCreate', async interaction => {
                 return await interaction.showModal(modal);
             }
 
-            // عرض النتائج للمسؤولين فقط (سرية ولا تظهر للعامة)
             if (customId === 'view_votes_results_btn') {
                 if (candidatesList.length === 0) {
                     return await interaction.reply({ content: '⚠️ لا يوجد أي مرشحين مضافين حتى الآن في النظام.', ephemeral: true });
@@ -327,7 +328,6 @@ client.on('interactionCreate', async interaction => {
                 return await interaction.reply({ embeds: [resEmbed], ephemeral: true });
             }
 
-            // فتح قائمة التصويت للعامة في روم العلَن
             if (customId === 'open_voting_booth_btn') {
                 if (userVotedSet.has(interaction.user.id)) {
                     return await interaction.reply({ content: '❌ عذراً، لقد قمت بالتصويت مسبقاً ولا يمكنك التصويت مرتين!', ephemeral: true });
@@ -506,7 +506,6 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.isStringSelectMenu()) {
-            // معالجة اختيار التصويت في روم العلَن
             if (interaction.customId === 'public_vote_select_menu') {
                 if (userVotedSet.has(interaction.user.id)) {
                     return await interaction.reply({ content: '❌ عذراً، لقد قمت بالتصويت مسبقاً!', ephemeral: true });
@@ -515,7 +514,6 @@ client.on('interactionCreate', async interaction => {
                 const selectedVal = interaction.values[0];
                 const targetUserId = selectedVal.replace('vote_for_', '');
 
-                // منع العضو من التصويت لنفسه
                 if (interaction.user.id === targetUserId) {
                     return await interaction.reply({ content: '❌ لا يمكنك التصويت لنفسك في الانتخابات!', ephemeral: true });
                 }
@@ -525,7 +523,6 @@ client.on('interactionCreate', async interaction => {
                     return await interaction.reply({ content: '❌ عذراً، هذا المرشح لم يعد موجوداً في القائمة.', ephemeral: true });
                 }
 
-                // تسجيل الصوت
                 candidate.votes.add(interaction.user.id);
                 userVotedSet.add(interaction.user.id);
 
@@ -533,42 +530,6 @@ client.on('interactionCreate', async interaction => {
                     content: `✅ **تم اعتماد صوتك بنجاح لصالح المرشح:** ${candidate.name} (<@${candidate.userId}>).\nشكراً لمشاركتك في العملية الانتخابية لوزارة العدل.`,
                     ephemeral: true
                 });
-            }
-
-            if (interaction.customId === 'select_room_actions') {
-                const vcId = interaction.values[0].replace('manage_room_', '');
-                const actionSelect = new StringSelectMenuBuilder()
-                    .setCustomId(`room_sub_action_${vcId}`)
-                    .setPlaceholder('⚙️ اختر العملية المطلوبة لهذا الروم...')
-                    .addOptions([
-                        { label: '🔇 ميوت جميع أعضاء الروم', value: `mute_${vcId}` },
-                        { label: '🔊 فك الميوت عن أعضاء الروم', value: `unmute_${vcId}` }
-                    ]);
-
-                const row = new ActionRowBuilder().addComponents(actionSelect);
-                return await interaction.reply({ content: '👇 ماذا تريد أن تفعل بهذا الروم؟', components: [row], ephemeral: true });
-            }
-
-            if (interaction.customId.startsWith('room_sub_action_')) {
-                const selectedVal = interaction.values[0];
-                const [action, channelId] = selectedVal.split('_');
-
-                await interaction.deferUpdate();
-
-                const channel = await guild.channels.fetch(channelId).catch(() => {});
-                if (!channel || !channel.isVoiceBased()) return;
-
-                const shouldMute = (action === 'mute');
-                const promises = [];
-
-                channel.members.forEach(member => {
-                    if (member.voice) {
-                        promises.push(member.voice.setMute(shouldMute).catch(() => {}));
-                    }
-                });
-
-                await Promise.all(promises);
-                return interaction.followUp({ content: `✅ تم تنفيذ العملية بنجاح على روم **${channel.name}**!`, ephemeral: true });
             }
         }
 
@@ -617,7 +578,6 @@ client.on('interactionCreate', async interaction => {
             const customId = interaction.customId;
             const senderInfo = getSenderInfo(interaction);
 
-            // معالجة نموذج إضافة مرشح جديد للقضاة (من قبل المسؤولين)
             if (customId === 'modal_add_candidate') {
                 const candName = interaction.fields.getTextInputValue('cand_name').trim();
                 const candUserId = interaction.fields.getTextInputValue('cand_user_id').trim();
